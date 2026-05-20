@@ -12,14 +12,14 @@
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check"
   },
+  "dependencies": {
+    "svelte": "^5.55.9"
+  },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.1.2",
     "oxfmt": "^0.51.0",
     "oxlint": "^1.66.0",
     "vite": "^8.0.13",
     "vite-plugin-singlefile": "^2.0.1"
-  },
-  "dependencies": {
-    "svelte": "^5.55.9"
   }
 }

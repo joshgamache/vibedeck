@@ -8,15 +8,15 @@ export function shuffle(a) {
 }
 
 export function esc(s) {
-  const d = document.createElement('div');
+  const d = document.createElement("div");
   d.textContent = s;
   return d.innerHTML;
 }
 
 export function fmtTime(ts) {
-  return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
 export function fmtDate(ts) {
-  return new Date(ts).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+  return new Date(ts).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
 }

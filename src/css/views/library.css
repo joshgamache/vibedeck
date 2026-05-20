@@ -19,7 +19,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  transition: border-color .2s;
+  transition: border-color 0.2s;
 }
 
 .deck-item:hover {
@@ -52,8 +52,8 @@
 }
 
 .deck-item-name {
-  font-family: 'Cinzel', serif;
-  font-size: .9rem;
+  font-family: "Cinzel", serif;
+  font-size: 0.9rem;
   font-weight: 600;
   color: var(--text);
   margin-bottom: 3px;
@@ -63,7 +63,7 @@
 }
 
 .deck-item-meta {
-  font-size: .8rem;
+  font-size: 0.8rem;
   color: var(--text-muted);
 }
 

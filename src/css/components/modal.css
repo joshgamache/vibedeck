@@ -1,7 +1,7 @@
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, .88);
+  background: rgba(0, 0, 0, 0.88);
   z-index: 200;
   display: none;
   align-items: flex-end;
@@ -13,7 +13,7 @@
   display: flex;
 }
 
-@media(min-width: 600px) {
+@media (min-width: 600px) {
   .modal-overlay {
     align-items: center;
   }
@@ -28,10 +28,10 @@
   max-height: 96vh;
   display: flex;
   flex-direction: column;
-  animation: slideUp .3s ease;
+  animation: slideUp 0.3s ease;
 }
 
-@media(min-width: 600px) {
+@media (min-width: 600px) {
   .modal {
     border-radius: 16px;
   }
@@ -54,10 +54,10 @@
 }
 
 .modal-title {
-  font-family: 'Cinzel', serif;
+  font-family: "Cinzel", serif;
   font-size: 1rem;
   font-weight: 700;
-  letter-spacing: .08em;
+  letter-spacing: 0.08em;
   color: var(--amber);
   text-transform: uppercase;
   display: flex;

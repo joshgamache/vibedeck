@@ -1,7 +1,7 @@
 .split-section-label {
-  font-family: 'Cinzel', serif;
-  font-size: .7rem;
-  letter-spacing: .1em;
+  font-family: "Cinzel", serif;
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--text-muted);
   margin-bottom: 10px;
@@ -16,13 +16,13 @@
   gap: 6px;
 }
 
-@media(min-width: 420px) {
+@media (min-width: 420px) {
   .split-card-grid {
     grid-template-columns: repeat(5, 1fr);
   }
 }
 
-@media(min-width: 540px) {
+@media (min-width: 540px) {
   .split-card-grid {
     grid-template-columns: repeat(6, 1fr);
   }
@@ -36,7 +36,7 @@
   border: 2px solid var(--border);
   background: var(--card-bg);
   cursor: pointer;
-  transition: border-color .15s;
+  transition: border-color 0.15s;
 }
 
 .split-card-thumb img {
@@ -49,10 +49,10 @@
   position: absolute;
   bottom: 2px;
   right: 3px;
-  font-family: 'Cinzel', serif;
-  font-size: .48rem;
-  color: rgba(255, 255, 255, .45);
-  background: rgba(0, 0, 0, .6);
+  font-family: "Cinzel", serif;
+  font-size: 0.48rem;
+  color: rgba(255, 255, 255, 0.45);
+  background: rgba(0, 0, 0, 0.6);
   padding: 1px 3px;
   border-radius: 2px;
 }
@@ -97,7 +97,7 @@
   border: none;
   border-bottom: 1px solid var(--border2);
   color: var(--text);
-  font-family: 'Crimson Pro', serif;
+  font-family: "Crimson Pro", serif;
   font-size: 1rem;
   padding: 2px 4px;
   outline: none;
@@ -112,7 +112,7 @@
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  font-size: .9rem;
+  font-size: 0.9rem;
   padding: 4px;
   line-height: 1;
 }
@@ -132,9 +132,9 @@
 }
 
 .range-field-label {
-  font-family: 'Cinzel', serif;
-  font-size: .6rem;
-  letter-spacing: .08em;
+  font-family: "Cinzel", serif;
+  font-size: 0.6rem;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-muted);
   margin-bottom: 4px;
@@ -146,8 +146,8 @@
   border: 1px solid var(--border);
   border-radius: 6px;
   color: var(--text);
-  font-family: 'Crimson Pro', serif;
-  font-size: .95rem;
+  font-family: "Crimson Pro", serif;
+  font-size: 0.95rem;
   padding: 6px 10px;
   outline: none;
   text-align: center;
@@ -164,7 +164,7 @@
 }
 
 .range-card-count {
-  font-size: .78rem;
+  font-size: 0.78rem;
   color: var(--text-muted);
   font-style: italic;
   text-align: center;
@@ -172,7 +172,7 @@
 }
 
 .no-ranges {
-  font-size: .9rem;
+  font-size: 0.9rem;
   color: var(--text-muted);
   font-style: italic;
   text-align: center;
@@ -195,7 +195,7 @@
   cursor: pointer;
 }
 
-.split-option-row input[type=radio] {
+.split-option-row input[type="radio"] {
   accent-color: var(--amber);
   width: 14px;
   height: 14px;
@@ -204,13 +204,13 @@
 }
 
 .split-opt-title {
-  font-size: .9rem;
+  font-size: 0.9rem;
   color: var(--text);
   margin-bottom: 1px;
 }
 
 .split-opt-sub {
-  font-size: .78rem;
+  font-size: 0.78rem;
   color: var(--text-muted);
   font-style: italic;
 }

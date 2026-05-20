@@ -10,9 +10,9 @@
 }
 
 .deck-label {
-  font-family: 'Cinzel', serif;
-  font-size: .65rem;
-  letter-spacing: .12em;
+  font-family: "Cinzel", serif;
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--text-muted);
   white-space: nowrap;
@@ -23,7 +23,7 @@ select.deck-select {
   background: transparent;
   border: none;
   color: var(--text);
-  font-family: 'Crimson Pro', serif;
+  font-family: "Crimson Pro", serif;
   font-size: 1rem;
   cursor: pointer;
   outline: none;
@@ -36,7 +36,7 @@ select.deck-select option {
 }
 
 .deck-count-badge {
-  font-size: .75rem;
+  font-size: 0.75rem;
   color: var(--text-muted);
   background: var(--bg);
   border: 1px solid var(--border);
@@ -63,13 +63,13 @@ select.deck-select option {
   height: 100%;
   background: linear-gradient(90deg, var(--amber-dim), var(--amber));
   border-radius: 2px;
-  transition: width .4s ease;
+  transition: width 0.4s ease;
 }
 
 .deck-progress-text {
   display: flex;
   justify-content: space-between;
-  font-size: .75rem;
+  font-size: 0.75rem;
   color: var(--text-muted);
 }
 
