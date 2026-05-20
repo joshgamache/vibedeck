@@ -1,0 +1,21 @@
+:root {
+  --bg: #080810;
+  --bg2: #0f0f1a;
+  --bg3: #161625;
+  --bg4: #1c1c2e;
+  --border: #2a2a42;
+  --border2: #3a3a58;
+  --amber: #d4943a;
+  --amber2: #f0b855;
+  --amber-dim: #a06820;
+  --text: #e8e4d8;
+  --text-dim: #9a9480;
+  --text-muted: #5a5468;
+  --red: #c45040;
+  --green: #4a9060;
+  --blue: #4070b8;
+  --card-bg: #12121e;
+  --shadow: 0 8px 40px rgba(0, 0, 0, .8);
+  --glow: 0 0 20px rgba(212, 148, 58, .15);
+  --radius: 12px;
+}

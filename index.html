@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>The Deck — Monte Cook Card Reader</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,300;1,400&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <link rel="stylesheet" href="/src/index.css">
+</head>
+<body>
+  <div id="app">
+    <header>
+      <div class="logo">The Deck <span>/ MCG Card Reader</span></div>
+      <button class="btn btn-ghost" onclick="window.openImportModal()">+ Import</button>
+    </header>
+    
+    <nav>
+      <button class="nav-tab active" onclick="window.switchTab('draw', this)">Draw</button>
+      <button class="nav-tab" onclick="window.switchTab('history', this)">History</button>
+      <button class="nav-tab" onclick="window.switchTab('library', this)">Library</button>
+    </nav>
+    
+    <main>
+      <!-- Draw Tab View -->
+      <div id="view-draw" class="view active">
+        <div class="deck-selector-bar">
+          <span class="deck-label">Deck</span>
+          <select class="deck-select" id="deck-select" onchange="window.onDeckChange(this.value)">
+            <option value="">— No decks imported —</option>
+          </select>
+          <span class="deck-count-badge" id="deck-count-badge">0 left</span>
+        </div>
+        
+        <div class="deck-progress">
+          <div class="deck-progress-bar">
+            <div class="deck-progress-fill" id="deck-progress-fill" style="width:0%"></div>
+          </div>
+          <div class="deck-progress-text">
+            <span id="progress-drawn">0 drawn</span>
+            <span id="progress-total">0 total</span>
+          </div>
+        </div>
+        
+        <div class="card-stage">
+          <div class="card-frame" id="card-frame" onclick="window.handleCardClick()">
+            <div class="card-inner">
+              <div class="card-face front" id="card-face-front">
+                <div class="card-empty">
+                  <div class="card-empty-symbol">✦</div>
+                  <div class="card-empty-text">No card drawn</div>
+                </div>
+              </div>
+              <div class="card-face back" id="card-face-back"></div>
+            </div>
+          </div>
+          
+          <div class="card-meta" id="card-meta" style="display:none">
+            <span class="card-num" id="card-num-display"></span>
+            <span class="card-drawn-time" id="card-drawn-time"></span>
+          </div>
+          
+          <div class="flip-hint" id="flip-hint" style="display:none">Tap card to flip</div>
+          <div class="card-text-panel" id="card-text-panel"></div>
+        </div>
+        
+        <div class="draw-controls">
+          <div class="draw-controls-row">
+            <button class="btn btn-primary" id="draw-btn" onclick="window.drawCard()" disabled>✦ Draw Card</button>
+          </div>
+          <div class="draw-controls-row">
+            <button class="btn btn-secondary" id="reshuffle-btn" onclick="window.reshuffleDeck()" disabled>↺ Reshuffle</button>
+            <button class="btn btn-secondary" id="text-btn" onclick="window.toggleCardText()" disabled>≡ Text</button>
+          </div>
+        </div>
+      </div>
+      
+      <!-- History Tab View -->
+      <div id="view-history" class="view">
+        <div class="history-header">
+          <span class="section-title" id="history-title">Draw History</span>
+          <button class="btn btn-ghost" onclick="window.clearHistory()">Clear</button>
+        </div>
+        <div id="history-content">
+          <div class="empty-state">
+            <div class="empty-state-icon">🃏</div>
+            <div class="empty-state-title">No cards drawn yet</div>
+            <div class="empty-state-sub">Cards you draw will appear here.</div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Library Tab View -->
+      <div id="view-library" class="view">
+        <div class="library-top">
+          <span class="section-title">My Decks</span>
+          <button class="btn btn-ghost" onclick="window.openImportModal()">+ Import PDF</button>
+        </div>
+        <div id="library-content">
+          <div class="empty-state">
+            <div class="empty-state-icon">📚</div>
+            <div class="empty-state-title">No decks imported</div>
+            <div class="empty-state-sub">Import a Monte Cook Games card deck PDF to get started.</div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+  
+  <!-- Import Deck Dialog Modal -->
+  <div class="modal-overlay" id="import-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title">Import Deck<button class="modal-close" onclick="window.closeImportModal()">✕</button></div>
+        <div class="stepper">
+          <div class="step-dot active" id="sdot-1"><div class="step-circle">1</div><div class="step-label">Configure</div></div>
+          <div class="step-dot" id="sdot-2"><div class="step-circle">2</div><div class="step-label">Preview</div></div>
+          <div class="step-dot" id="sdot-3"><div class="step-circle">3</div><div class="step-label">Import</div></div>
+        </div>
+      </div>
+      
+      <div class="modal-body">
+        <!-- Step 1: Configure -->
+        <div class="import-step active" id="istep-1">
+          <div class="form-group">
+            <label class="form-label">Deck Name</label>
+            <input type="text" class="form-input" id="import-name" placeholder="e.g. Cypher Deck, Weird Deck…" oninput="window.checkStep1()">
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">PDF File</label>
+            <div class="drop-zone" id="drop-zone">
+              <input type="file" accept=".pdf" id="pdf-file-input" onchange="window.onFileSelected(event)">
+              <div class="drop-zone-icon">📄</div>
+              <div class="drop-zone-text" id="drop-zone-text">Tap to choose PDF</div>
+              <div class="drop-zone-sub">or drag &amp; drop</div>
+            </div>
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">Card Layout</label>
+            <div class="layout-grid">
+              <div class="layout-option selected" id="lo-single" onclick="window.setLayout('single', this)">
+                <div class="layout-option-icon">🃏</div>
+                <div class="layout-option-title">Single</div>
+                <div class="layout-option-sub">1 page = 1 card, no back face</div>
+              </div>
+              <div class="layout-option" id="lo-paired-af" onclick="window.setLayout('paired-af', this)">
+                <div class="layout-option-icon">↕</div>
+                <div class="layout-option-title">Paired A</div>
+                <div class="layout-option-sub">Odd pages = Front, Even pages = Back</div>
+              </div>
+              <div class="layout-option" id="lo-paired-bf" onclick="window.setLayout('paired-bf', this)">
+                <div class="layout-option-icon">↕</div>
+                <div class="layout-option-title">Paired B</div>
+                <div class="layout-option-sub">Odd pages = Back, Even pages = Front</div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">Render Quality</label>
+            <select class="form-input" id="import-quality">
+              <option value="1.5">Standard (faster)</option>
+              <option value="2" selected>High (recommended)</option>
+              <option value="2.5">Maximum (large files)</option>
+            </select>
+          </div>
+        </div>
+        
+        <!-- Step 2: Preview -->
+        <div class="import-step" id="istep-2">
+          <div id="preview-loading" style="display:none">
+            <div class="preview-loading">
+              <div class="preview-loading-icon">⏳</div>
+              <div class="preview-loading-text">Rendering preview pages…</div>
+              <div class="mini-progress">
+                <div class="mini-progress-fill" id="mini-pf" style="width:0%"></div>
+              </div>
+            </div>
+          </div>
+          
+          <div id="preview-content" style="display:none">
+            <div id="pair-example" class="pair-example" style="display:none">
+              <div class="pair-ex-col is-front">
+                <div class="ex-label">Front</div>
+                <div class="ex-thumb"><img id="ex-front-img" src="" alt=""></div>
+              </div>
+              <div class="pair-ex-arrow">⟷</div>
+              <div class="pair-ex-col is-back">
+                <div class="ex-label">Back</div>
+                <div class="ex-thumb"><img id="ex-back-img" src="" alt=""></div>
+              </div>
+              <div class="pair-ex-info">
+                <div class="pair-ex-title" id="pex-title"></div>
+                <div class="pair-ex-sub" id="pex-sub"></div>
+              </div>
+            </div>
+            <p class="preview-info-text" id="preview-info-text"></p>
+            <div class="preview-grid" id="preview-grid"></div>
+          </div>
+        </div>
+        
+        <!-- Step 3: Progress -->
+        <div class="import-step" id="istep-3">
+          <div class="import-progress-wrap">
+            <div class="progress-bar-wrap">
+              <div class="progress-bar-fill" id="imp-pf" style="width:0%"></div>
+            </div>
+            <div class="progress-text-label" id="imp-pt">Preparing…</div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="modal-footer">
+        <div class="draw-controls-row" style="gap:10px">
+          <button class="btn btn-secondary" id="ibtn-back" onclick="window.importBack()" style="display:none">← Back</button>
+          <button class="btn btn-secondary" id="ibtn-cancel" onclick="window.closeImportModal()">Cancel</button>
+          <button class="btn btn-primary" id="ibtn-next" onclick="window.importNext()" disabled>Preview →</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Split Deck Dialog Modal -->
+  <div class="modal-overlay" id="split-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title" style="font-size:.85rem">
+          Split: <span id="split-deck-name" style="color:var(--text-dim);font-weight:400"></span>
+          <button class="modal-close" onclick="window.closeSplitModal()">✕</button>
+        </div>
+      </div>
+      
+      <div class="modal-body">
+        <div class="split-section-label">All Cards <span id="split-total" style="color:var(--text-muted)"></span></div>
+        <div class="split-card-grid" id="split-card-grid">
+          <div class="empty-state" style="grid-column:1/-1;padding:24px 0">
+            <div class="empty-state-icon" style="font-size:1.5rem">⏳</div>
+            <div class="empty-state-title">Loading…</div>
+          </div>
+        </div>
+        
+        <div class="split-ranges-section">
+          <div class="split-section-label">
+            Named Ranges
+            <button class="btn btn-ghost" style="padding:5px 10px;font-size:.6rem" onclick="window.addSplitRange()">+ Add Range</button>
+          </div>
+          <div id="split-ranges-list">
+            <div class="no-ranges">No ranges yet — add a range and assign page numbers.</div>
+          </div>
+        </div>
+        
+        <div class="split-after-section">
+          <div class="split-section-label" style="margin-bottom:8px">After creating sub-decks…</div>
+          <label class="split-option-row">
+            <input type="radio" name="split-after" value="keep" checked>
+            <div>
+              <div class="split-opt-title">Keep original deck</div>
+              <div class="split-opt-sub">Source deck remains alongside new sub-decks</div>
+            </div>
+          </label>
+          <label class="split-option-row">
+            <input type="radio" name="split-after" value="delete">
+            <div>
+              <div class="split-opt-title">Delete original deck</div>
+              <div class="split-opt-sub">Remove source deck after splitting</div>
+            </div>
+          </label>
+        </div>
+      </div>
+      
+      <div class="modal-footer">
+        <div class="draw-controls-row" style="gap:10px">
+          <button class="btn btn-secondary" onclick="window.closeSplitModal()">Cancel</button>
+          <button class="btn btn-primary" id="split-confirm-btn" onclick="window.confirmSplit()" disabled>Create Sub-decks</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Image Lightbox Modal Overlay -->
+  <div class="lightbox" id="lightbox" onclick="window.closeLightbox()">
+    <button class="lightbox-close" onclick="window.closeLightbox()">✕</button>
+    <img id="lightbox-img" src="" alt="">
+  </div>
+  
+  <!-- Central Toast Notifications Container -->
+  <div class="toast-container" id="toast-container"></div>
+  
+  <!-- Main Script Module -->
+  <script type="module" src="/src/js/main.js"></script>
+</body>
+</html>
