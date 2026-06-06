@@ -107,28 +107,28 @@ A portable, single-file HTML web application for using Monte Cook Games card dec
 
 ---
 
-## Next Feature: Local Network Sharing (Not Yet Built)
+## Local Network Sharing (Fully Implemented)
 
-This was being actively designed when the chat ended. The goal is to share card draws across devices on the same table (e.g. GM draws a card, it appears on a player's phone).
+A robust peer-to-peer card sharing system is integrated directly into the application under the **Table** tab. This allows the GM to broadcast their drawn cards to players' phones, tablets, or laptops in real time without running any server commands.
 
-### The Problem
+### Architecture & Protocol
 
-Pure browser HTML files can't run servers or open raw sockets. Options discussed:
+- **WebRTC + PeerJS** (`https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js`): Establishes direct client-to-client data channels. A public PeerJS cloud server handles the initial room handshake.
+- **Offline QR Code Generation** (`https://cdn.jsdelivr.net/gh/davidshimjs/qrcodejs/qrcode.min.js`): Generates a client-side scan-to-join QR code without external APIs.
+- **Zero-Setup UX**: Since cards are sent as full payloads (including metadata, text, and base64 image data-URLs), players do **not** need to import the PDF deck themselves. They simply connect and view the cards.
 
-| Option                         | How                                           | Pros                                 | Cons                       |
-| ------------------------------ | --------------------------------------------- | ------------------------------------ | -------------------------- |
-| **WebRTC + PeerJS**            | Room code, needs brief internet for handshake | Clean UX, peer-to-peer after connect | Requires internet at start |
-| **WebRTC manual signaling**    | Exchange offer/answer blobs (or QR codes)     | Fully offline/LAN                    | Clunky setup               |
-| **Local server (Node/Python)** | One terminal command, others connect via IP   | Most robust, truly local             | Requires terminal comfort  |
-| **Separate GM + Player files** | GM controls, pushes reveals to players        | Clean role separation                | More complex to build      |
+### How It Works
 
-### Questions That Were Asked (Answers Not Yet Received)
+1. **Host Table (GM Mode):**
+   - Click "Host Room" in the **Table** tab.
+   - Generates a random 6-digit Room Code and displays a scan-to-join QR Code.
+   - Shows live connection status and player counts.
+   - Drawing a card, flipping it, or reshuffling/clearing the deck in the **Draw** tab automatically broadcasts the state to all connected devices. A green broadcasting indicator appears in the Draw view for confirmation.
 
-1. What's your typical setup? (Always internet / Sometimes offline / Fully offline LAN)
-2. How separate should GM/Player be? (GM pushes cards / Players browse / Just mirror draws)
-3. Comfortable with a terminal command on GM device? (Yes / No / Maybe)
-
-**Recommendation pending answers:** WebRTC + PeerJS with separate GM/Player HTML files is probably the sweet spot for most setups. If fully offline, manual QR-code WebRTC signaling. If terminal is fine, a tiny Node.js server is most robust.
+2. **Join Table (Player Mode):**
+   - Enter the 6-digit Room Code in the **Table** tab, or scan the GM's QR Code.
+   - Scanning the QR Code automatically loads the page with the `?table=XXXXXX` URL parameter, routing the player to the Table tab and establishing the connection automatically.
+   - Once connected, the player sees a "Waiting for GM..." screen. When the GM draws or pushes a card, it appears instantly with fully interactive front/back flipping, text drawer toggles, and lightbox zooms.
 
 ---
 

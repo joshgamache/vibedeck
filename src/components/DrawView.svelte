@@ -3,6 +3,7 @@
   import { iGet, iPut, iIdx } from '../js/db.js';
   import { shuffle, fmtTime } from '../js/utils.js';
   import { showToast } from '../js/toastStore.js';
+  import { syncRole, roomCode, clientCount, pushCard, pushFlip, pushClear } from '../js/sync.js';
 
   let animateReveal = false;
 
@@ -57,6 +58,9 @@
     currentCard.set(null);
     cardFlipped.set(false);
     showText.set(false);
+    if ($syncRole === 'host') {
+      pushClear();
+    }
   }
 
   async function drawCard() {
@@ -87,6 +91,10 @@
     currentCard.set(card);
     cardFlipped.set(false);
     showText.set(false);
+
+    if ($syncRole === 'host') {
+      pushCard(card);
+    }
 
     const entry = {
       deckId: $currentDeckId,
@@ -129,11 +137,20 @@
     cardFlipped.set(false);
     showText.set(false);
     showToast('Deck reshuffled');
+    if ($syncRole === 'host') {
+      pushClear();
+    }
   }
 
   function handleCardClick() {
     if (!hasBoth) return;
-    cardFlipped.update(v => !v);
+    cardFlipped.update(v => {
+      const next = !v;
+      if ($syncRole === 'host') {
+        pushFlip(next);
+      }
+      return next;
+    });
   }
 </script>
 
@@ -149,6 +166,12 @@
     </select>
     <span class="deck-count-badge">{(ds ? ds.remaining.length : 0)} left</span>
   </div>
+
+  {#if $syncRole === 'host'}
+    <div style="text-align: center; font-size: 0.78rem; color: var(--green); margin-bottom: 16px; font-family: 'Cinzel', serif; letter-spacing: 0.05em; text-shadow: 0 0 8px rgba(74, 144, 96, 0.3);">
+      📡 Broadcasting live to {$clientCount} player{$clientCount === 1 ? '' : 's'} (Code: {$roomCode})
+    </div>
+  {/if}
 
   <div class="deck-progress">
     <div class="deck-progress-bar">

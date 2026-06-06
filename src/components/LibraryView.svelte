@@ -3,6 +3,7 @@
   import { iDel, iDelIdx } from '../js/db.js';
   import { fmtDate } from '../js/utils.js';
   import { showToast } from '../js/toastStore.js';
+  import { syncRole, pushClear } from '../js/sync.js';
 
   function selectDeck(id) {
     currentDeckId.set(id);
@@ -11,6 +12,9 @@
     showText.set(false);
     localStorage.setItem(STORAGE_KEYS.lastDeckId, id);
     activeTab.set('draw');
+    if ($syncRole === 'host') {
+      pushClear();
+    }
   }
 
   async function deleteDeck(id, name) {
@@ -47,6 +51,9 @@
         cardFlipped.set(false);
         showText.set(false);
         localStorage.setItem(STORAGE_KEYS.lastDeckId, nextId || '');
+        if ($syncRole === 'host') {
+          pushClear();
+        }
         return nextId;
       }
       return curr;
