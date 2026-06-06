@@ -234,16 +234,19 @@
                   <img
                     src={$sharedCard.front}
                     alt=""
-                    on:click|stopPropagation={() => lightboxSrc.set($sharedCard.front)}
+                    on:click={(e) => {
+                      if (!hasBoth) {
+                        e.stopPropagation();
+                        lightboxSrc.set($sharedCard.front);
+                      }
+                    }}
                   />
                 </div>
                 <div class="card-face back">
                   {#if hasBoth}
-                    <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
                     <img
                       src={$sharedCard.back}
                       alt=""
-                      on:click|stopPropagation={() => lightboxSrc.set($sharedCard.back)}
                     />
                   {/if}
                 </div>
@@ -252,13 +255,22 @@
 
             <div class="card-meta">
               <span class="card-num">Page {$sharedCard.pageNum}</span>
-              <button 
-                class="btn btn-ghost btn-text-toggle" 
-                disabled={!$sharedCard.text}
-                on:click={() => sharedCardShowText.update((v) => !v)}
-              >
-                ≡ Text
-              </button>
+              <div style="display: flex; gap: 8px;">
+                <button 
+                  class="btn btn-ghost btn-text-toggle" 
+                  disabled={!$sharedCard}
+                  on:click={() => lightboxSrc.set($sharedCardFlipped ? $sharedCard.back : $sharedCard.front)}
+                >
+                  🔍 Zoom
+                </button>
+                <button 
+                  class="btn btn-ghost btn-text-toggle" 
+                  disabled={!$sharedCard.text}
+                  on:click={() => sharedCardShowText.update((v) => !v)}
+                >
+                  ≡ Text
+                </button>
+              </div>
             </div>
 
             {#if hasBoth}

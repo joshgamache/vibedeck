@@ -206,17 +206,20 @@
             <img
               src={$currentCard.front}
               alt=""
-              on:click|stopPropagation={() => lightboxSrc.set($currentCard.front)}
+              on:click={(e) => {
+                if (!hasBoth) {
+                  e.stopPropagation();
+                  lightboxSrc.set($currentCard.front);
+                }
+              }}
             />
           {/if}
         </div>
         <div class="card-face back" id="card-face-back">
           {#if $currentCard && hasBoth}
-            <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
             <img
               src={$currentCard.back}
               alt=""
-              on:click|stopPropagation={() => lightboxSrc.set($currentCard.back)}
             />
           {/if}
         </div>
@@ -260,6 +263,18 @@
         disabled={!$currentDeckId}
       >
         ↺ Reshuffle
+      </button>
+      <button
+        class="btn btn-secondary"
+        id="zoom-btn"
+        on:click={() => {
+          if ($currentCard) {
+            lightboxSrc.set($cardFlipped ? $currentCard.back : $currentCard.front);
+          }
+        }}
+        disabled={!$currentCard}
+      >
+        🔍 Zoom
       </button>
       <button
         class="btn btn-secondary"
