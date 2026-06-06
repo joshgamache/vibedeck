@@ -10,11 +10,15 @@
     sharedCardFlipped,
     sharedCardShowText,
     syncError,
+    playerName,
+    connectedPlayers,
+    receivedCards,
     startHosting,
     joinTable,
     disconnect,
+    sendCardTo,
   } from "../js/sync.js";
-  import { lightboxSrc } from "../js/state.js";
+  import { currentCard, lightboxSrc } from "../js/state.js";
 
   let inputCode = "";
   let qrCanvas;
@@ -46,14 +50,21 @@
   }
 
   function handleJoin() {
-    if (inputCode.trim().length === 6) {
-      joinTable(inputCode.trim());
+    if (inputCode.trim().length === 6 && $playerName.trim()) {
+      joinTable(inputCode.trim(), $playerName.trim());
     }
   }
 
   function handleCardClick() {
     if (!hasBoth) return;
     sharedCardFlipped.update((v) => !v);
+  }
+
+  function clearHand() {
+    if (confirm("Discard all cards in your hand?")) {
+      receivedCards.set([]);
+      sharedCard.set(null);
+    }
   }
 
   onMount(() => {
@@ -74,7 +85,7 @@
         <div class="choice-card host-card">
           <div class="choice-icon">📢</div>
           <h3>Host Table (GM)</h3>
-          <p>Create a game room. Drawn cards will automatically sync to all connected players' screens.</p>
+          <p>Create a game room. Broadcast drawn cards to everyone, or distribute them privately to specific players.</p>
           <button class="btn btn-primary" on:click={startHosting}>Host Room</button>
         </div>
 
@@ -82,17 +93,23 @@
         <div class="choice-card join-card">
           <div class="choice-icon">🔌</div>
           <h3>Join Table (Player)</h3>
-          <p>Enter a 6-digit room code to connect to a GM's table and view their draws.</p>
+          <p>Set your name and enter a 6-digit room code to join a GM's table.</p>
           
           <div class="join-input-group">
             <input 
               type="text" 
-              placeholder="Enter 6-digit code" 
+              placeholder="Your Name" 
+              bind:value={$playerName} 
+              style="letter-spacing: normal; font-family: 'Crimson Pro', serif; font-size: 1.05rem; margin-bottom: 4px;"
+            />
+            <input 
+              type="text" 
+              placeholder="6-digit Room Code" 
               maxlength="6" 
               bind:value={inputCode} 
               on:keydown={(e) => e.key === "Enter" && handleJoin()}
             />
-            <button class="btn btn-secondary" on:click={handleJoin} disabled={inputCode.length !== 6}>
+            <button class="btn btn-secondary" on:click={handleJoin} disabled={inputCode.length !== 6 || !$playerName.trim()}>
               Connect
             </button>
           </div>
@@ -133,9 +150,31 @@
         </div>
       </div>
 
+      <div class="player-list-section">
+        <h3>Connected Players</h3>
+        {#if $connectedPlayers.length === 0}
+          <p class="no-players-text">Waiting for players to connect...</p>
+        {:else}
+          <div class="player-grid">
+            {#each $connectedPlayers as player (player.peerId)}
+              <div class="player-item">
+                <span class="player-name">👤 {player.name}</span>
+                {#if $currentCard}
+                  <button class="btn btn-ghost btn-send-private" on:click={() => sendCardTo(player.peerId, $currentCard)}>
+                    📨 Send Current Card
+                  </button>
+                {:else}
+                  <span style="font-size: 0.72rem; color: var(--text-muted); font-style: italic;">No active card drawn</span>
+                {/if}
+              </div>
+            {/each}
+          </div>
+        {/if}
+      </div>
+
       <div class="host-preview-section">
         <h3>Currently Shared Card</h3>
-        <p class="preview-explanation">Connected players see your drawn card in real time.</p>
+        <p class="preview-explanation">Drawn cards automatically sync to all devices by default.</p>
         <div class="card-status-bar">
           Status: {$syncState === "connected" ? "Broadcasting live" : "Ready"}
         </div>
@@ -149,7 +188,7 @@
           {#if $syncState === "connecting"}
             ● CONNECTING
           {:else if $syncState === "connected"}
-            ● CONNECTED TO TABLE: {$roomCode}
+            ● CONNECTED AS {$playerName.toUpperCase()} (TABLE: {$roomCode})
           {:else}
             ● DISCONNECTED
           {/if}
@@ -168,15 +207,15 @@
           <div class="error-icon">⚠️</div>
           <h2>Connection Error</h2>
           <p class="error-msg">{$syncError || "Could not connect to room."}</p>
-          <button class="btn btn-primary" on:click={() => joinTable($roomCode)}>Retry</button>
+          <button class="btn btn-primary" on:click={() => joinTable($roomCode, $playerName)}>Retry</button>
         </div>
       {:else}
         <!-- Connected client view -->
         {#if !$sharedCard}
           <div class="client-waiting">
             <div class="pulse-icon">✦</div>
-            <h2>Waiting for GM to draw...</h2>
-            <p>Once the GM draws or reveals a card, it will appear here instantly.</p>
+            <h2>Waiting for GM...</h2>
+            <p>Once the GM draws, broadcasts, or assigns you a card, it will appear here instantly.</p>
           </div>
         {:else}
           <div class="card-stage">
@@ -229,6 +268,34 @@
             {#if $sharedCardShowText && $sharedCard.text}
               <div class="card-text-panel visible">{$sharedCard.text}</div>
             {/if}
+          </div>
+        {/if}
+
+        <!-- Personal Player Hand Collection -->
+        {#if $receivedCards.length > 0}
+          <div class="player-hand-section">
+            <div class="hand-header">
+              <h4>My Cards ({$receivedCards.length})</h4>
+              <button class="btn btn-ghost btn-clear-hand" on:click={clearHand}>Discard Hand</button>
+            </div>
+            <div class="hand-scroll">
+              {#each $receivedCards as card (card.id)}
+                <!-- svelte-ignore a11y-click-events-have-key-events -->
+                <!-- svelte-ignore a11y-no-static-element-interactions -->
+                <div 
+                  class="hand-card-thumb" 
+                  class:active={$sharedCard && $sharedCard.id === card.id} 
+                  on:click={() => {
+                    sharedCard.set(card);
+                    sharedCardFlipped.set(false);
+                    sharedCardShowText.set(false);
+                  }}
+                >
+                  <img src={card.front} alt="" />
+                  <span class="hand-card-num">p{card.pageNum}</span>
+                </div>
+              {/each}
+            </div>
           </div>
         {/if}
       {/if}
@@ -464,6 +531,142 @@
     color: var(--bg);
     font-style: italic;
     font-size: 0.9rem;
+  }
+
+  /* Connected Player Grid */
+  .player-list-section {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+  }
+  .player-list-section h3 {
+    font-family: "Cinzel", serif;
+    color: var(--amber);
+    font-size: 0.85rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+  .no-players-text {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    font-style: italic;
+    text-align: center;
+    padding: 10px;
+  }
+  .player-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .player-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    transition: border-color 0.2s;
+  }
+  .player-item:hover {
+    border-color: var(--border2);
+  }
+  .player-name {
+    font-family: "Crimson Pro", Georgia, serif;
+    font-size: 1.05rem;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .btn-send-private {
+    font-size: 0.65rem;
+    padding: 6px 12px;
+    background: rgba(212, 148, 58, 0.1);
+    border: 1px solid rgba(212, 148, 58, 0.4);
+    color: var(--amber2);
+  }
+  .btn-send-private:hover {
+    background: rgba(212, 148, 58, 0.2);
+    border-color: var(--amber);
+  }
+
+  /* Player Hand Scroll Section */
+  .player-hand-section {
+    width: 100%;
+    max-width: 420px;
+    margin: 24px auto 0;
+    border-top: 1px solid var(--border);
+    padding-top: 16px;
+  }
+  .hand-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+  }
+  .hand-header h4 {
+    font-family: "Cinzel", serif;
+    font-size: 0.8rem;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    text-transform: uppercase;
+  }
+  .btn-clear-hand {
+    font-size: 0.65rem;
+    padding: 4px 8px;
+  }
+  .hand-scroll {
+    display: flex;
+    gap: 12px;
+    overflow-x: auto;
+    padding-bottom: 10px;
+    scrollbar-width: thin;
+  }
+  .hand-scroll::-webkit-scrollbar {
+    height: 4px;
+  }
+  .hand-scroll::-webkit-scrollbar-thumb {
+    background: var(--border2);
+    border-radius: 4px;
+  }
+  .hand-card-thumb {
+    width: 68px;
+    aspect-ratio: 2.5/3.5;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    flex-shrink: 0;
+    cursor: pointer;
+    position: relative;
+    transition: all 0.2s;
+  }
+  .hand-card-thumb:hover {
+    border-color: var(--amber-dim);
+    transform: translateY(-2px);
+  }
+  .hand-card-thumb.active {
+    border-color: var(--amber);
+    box-shadow: 0 0 10px rgba(212, 148, 58, 0.3);
+  }
+  .hand-card-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .hand-card-num {
+    position: absolute;
+    bottom: 2px;
+    right: 3px;
+    font-family: "Cinzel", serif;
+    font-size: 0.55rem;
+    color: rgba(255, 255, 255, 0.8);
+    background: rgba(0, 0, 0, 0.75);
+    padding: 1px 3px;
+    border-radius: 3px;
   }
 
   .host-preview-section {

@@ -109,26 +109,29 @@ A portable, single-file HTML web application for using Monte Cook Games card dec
 
 ## Local Network Sharing (Fully Implemented)
 
-A robust peer-to-peer card sharing system is integrated directly into the application under the **Table** tab. This allows the GM to broadcast their drawn cards to players' phones, tablets, or laptops in real time without running any server commands.
+A robust peer-to-peer card sharing system is integrated directly into the application under the **Table** tab. This allows the GM to broadcast or privately target drawn cards to players' phones, tablets, or laptops in real time with zero server setup.
 
 ### Architecture & Protocol
 
-- **WebRTC + PeerJS** (`https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js`): Establishes direct client-to-client data channels. A public PeerJS cloud server handles the initial room handshake.
-- **Offline QR Code Generation** (`https://cdn.jsdelivr.net/gh/davidshimjs/qrcodejs/qrcode.min.js`): Generates a client-side scan-to-join QR code without external APIs.
-- **Zero-Setup UX**: Since cards are sent as full payloads (including metadata, text, and base64 image data-URLs), players do **not** need to import the PDF deck themselves. They simply connect and view the cards.
+- **WebRTC + PeerJS** (via npm package `peerjs`): Establishes direct client-to-client data channels. A public PeerJS cloud server handles the initial room handshake.
+- **Offline QR Code Generation** (via npm package `qrcode`): Generates a client-side scan-to-join QR code on an HTML5 canvas with sharp details and custom theme colors.
+- **Zero-Setup UX**: Since cards are sent as full JSON payloads (including metadata, text, and base64 image data-URLs), players do **not** need to import the PDF deck themselves. They simply connect and receive cards.
 
 ### How It Works
 
 1. **Host Table (GM Mode):**
-   - Click "Host Room" in the **Table** tab.
-   - Generates a random 6-digit Room Code and displays a scan-to-join QR Code.
-   - Shows live connection status and player counts.
-   - Drawing a card, flipping it, or reshuffling/clearing the deck in the **Draw** tab automatically broadcasts the state to all connected devices. A green broadcasting indicator appears in the Draw view for confirmation.
+   - Click **Host Room** in the **Table** tab to generate a 6-digit Room Code and a scan-to-join QR Code.
+   - Lists connected players by name in real time.
+   - Displays a private assignment control block under both the **Draw** tab and the **Table** tab.
+   - Drawing a card automatically broadcasts it to **all** connected devices by default.
+   - Tapping a player's name (e.g. `👤 Jane`) under the **Assign Card Privately** panel sends the card only to that player's private hand.
 
 2. **Join Table (Player Mode):**
-   - Enter the 6-digit Room Code in the **Table** tab, or scan the GM's QR Code.
-   - Scanning the QR Code automatically loads the page with the `?table=XXXXXX` URL parameter, routing the player to the Table tab and establishing the connection automatically.
-   - Once connected, the player sees a "Waiting for GM..." screen. When the GM draws or pushes a card, it appears instantly with fully interactive front/back flipping, text drawer toggles, and lightbox zooms.
+   - Enter your name and the 6-digit Room Code in the **Table** tab, or scan the GM's QR Code.
+   - Scanning the QR Code automatically loads the page with the `?table=XXXXXX` URL parameter and connects using your saved name.
+   - **Interactive Player Hand**: Pushed cards appear in the main card viewer. In addition, every card received is added to the player's personal horizontal **Hand** drawer at the bottom of the screen.
+   - Tapping any card in the Hand drawer sets it as the active card in the viewer, allowing the player to flip it, view its text, or inspect it in full screen.
+   - Includes a **Discard Hand** button to clear the player's hand.
 
 ---
 

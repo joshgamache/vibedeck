@@ -3,7 +3,7 @@
   import { iGet, iPut, iIdx } from '../js/db.js';
   import { shuffle, fmtTime } from '../js/utils.js';
   import { showToast } from '../js/toastStore.js';
-  import { syncRole, roomCode, clientCount, pushCard, pushFlip, pushClear } from '../js/sync.js';
+  import { syncRole, roomCode, clientCount, connectedPlayers, sendCardTo, pushCard, pushFlip, pushClear } from '../js/sync.js';
 
   let animateReveal = false;
 
@@ -271,4 +271,65 @@
       </button>
     </div>
   </div>
+
+  {#if $syncRole === 'host' && $currentCard}
+    <div class="sync-distribute-panel">
+      <div class="distribute-title">Assign Card Privately:</div>
+      {#if $connectedPlayers.length === 0}
+        <div class="no-players-hint">No players connected to table</div>
+      {:else}
+        <div class="distribute-buttons">
+          {#each $connectedPlayers as player (player.peerId)}
+            <button class="btn btn-secondary btn-distribute" on:click={() => sendCardTo(player.peerId, $currentCard)}>
+              👤 {player.name}
+            </button>
+          {/each}
+        </div>
+      {/if}
+    </div>
+  {/if}
 </div>
+
+<style>
+  .sync-distribute-panel {
+    width: 100%;
+    max-width: 420px;
+    margin: 20px auto 0;
+    padding: 16px;
+    background: var(--bg2);
+    border: 1px dashed var(--border2);
+    border-radius: var(--radius);
+    text-align: center;
+  }
+  .distribute-title {
+    font-family: "Cinzel", serif;
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+  .no-players-hint {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    font-style: italic;
+  }
+  .distribute-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+  }
+  .btn-distribute {
+    font-size: 0.7rem;
+    padding: 6px 12px;
+    background: rgba(212, 148, 58, 0.08);
+    border: 1px solid rgba(212, 148, 58, 0.3);
+    color: var(--text-dim);
+  }
+  .btn-distribute:hover {
+    background: rgba(212, 148, 58, 0.18);
+    border-color: var(--amber);
+    color: var(--amber2);
+  }
+</style>
