@@ -103,7 +103,7 @@ export function startHosting() {
     conn.on("close", () => {
       const closingPlayer = get(connectedPlayers).find((p) => p.peerId === conn.peer);
       const name = closingPlayer ? closingPlayer.name : "A player";
-      
+
       activeConnections = activeConnections.filter((c) => c !== conn);
       connectedPlayers.update((list) => list.filter((p) => p.peerId !== conn.peer));
       clientCount.set(get(connectedPlayers).length);
@@ -306,7 +306,7 @@ export function sendCardTo(peerId, card) {
       cardFlipped: false,
       isPrivate: true,
     });
-    
+
     const player = get(connectedPlayers).find((p) => p.peerId === peerId);
     const name = player ? player.name : "player";
     showToast(`Sent card privately to ${name}`, "success");

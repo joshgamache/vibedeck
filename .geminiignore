@@ -1,0 +1,8 @@
+# Antigravity CLI and Gemini CLI Ignore Rules
+node_modules/
+dist/
+.git/
+.antigravitycli/
+.DS_Store
+*.log
+pnpm-lock.yaml
