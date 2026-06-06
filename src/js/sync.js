@@ -1,4 +1,5 @@
 import { writable, get } from "svelte/store";
+import { Peer } from "peerjs";
 import { showToast } from "./toastStore.js";
 import { currentCard, cardFlipped } from "./state.js";
 
@@ -27,15 +28,8 @@ export function startHosting() {
 
   const peerId = `vibedeck-room-${code}`;
 
-  if (!window.Peer) {
-    syncState.set("error");
-    syncError.set("PeerJS library is not loaded. Check internet connection.");
-    showToast("P2P library not found", "error");
-    return;
-  }
-
   try {
-    peer = new window.Peer(peerId, {
+    peer = new Peer(peerId, {
       debug: 1, // Only log errors
     });
   } catch (e) {
@@ -121,15 +115,8 @@ export function joinTable(code) {
   roomCode.set(code);
   syncError.set("");
 
-  if (!window.Peer) {
-    syncState.set("error");
-    syncError.set("PeerJS library is not loaded. Check internet connection.");
-    showToast("P2P library not found", "error");
-    return;
-  }
-
   try {
-    peer = new window.Peer({
+    peer = new Peer({
       debug: 1,
     });
   } catch (e) {

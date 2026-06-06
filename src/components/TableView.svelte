@@ -1,5 +1,6 @@
 <script>
   import { onDestroy, onMount } from "svelte";
+  import QRCode from "qrcode";
   import {
     syncRole,
     roomCode,
@@ -16,34 +17,28 @@
   import { lightboxSrc } from "../js/state.js";
 
   let inputCode = "";
-  let qrContainer;
-  let qrInstance;
+  let qrCanvas;
 
   $: hasBoth = $sharedCard && $sharedCard.front && $sharedCard.back;
 
-  // Re-run whenever qrContainer or roomCode changes in hosting mode
+  // Re-run whenever qrCanvas or roomCode changes in hosting mode
   $: {
-    if (qrContainer && $roomCode && $syncRole === "host") {
+    if (qrCanvas && $roomCode && $syncRole === "host") {
       setTimeout(renderQRCode, 50);
     }
   }
 
-  function renderQRCode() {
-    if (!qrContainer) return;
-    if (!window.QRCode) {
-      console.error("QRCode library not loaded");
-      return;
-    }
-    qrContainer.innerHTML = "";
+  async function renderQRCode() {
+    if (!qrCanvas) return;
     const joinUrl = `${window.location.origin}${window.location.pathname}?table=${$roomCode}`;
     try {
-      qrInstance = new window.QRCode(qrContainer, {
-        text: joinUrl,
+      await QRCode.toCanvas(qrCanvas, joinUrl, {
         width: 160,
-        height: 160,
-        colorDark: "#080810",
-        colorLight: "#e8e4d8",
-        correctLevel: window.QRCode.CorrectLevel.H,
+        margin: 1,
+        color: {
+          dark: "#080810",
+          light: "#e8e4d8",
+        },
       });
     } catch (e) {
       console.error("Failed to generate QR code", e);
@@ -129,10 +124,11 @@
         
         <div class="qr-code-wrapper">
           <div class="qr-code-label">Scan to Join</div>
-          <div class="qr-code-box" bind:this={qrContainer}>
+          <div class="qr-code-box">
             {#if !$roomCode}
               <div class="qr-placeholder">Generating...</div>
             {/if}
+            <canvas bind:this={qrCanvas} style="display: {$roomCode ? 'block' : 'none'}; width: 160px; height: 160px;"></canvas>
           </div>
         </div>
       </div>
