@@ -1,5 +1,5 @@
-<script>
-  import { lightboxSrc } from '../js/state.js';
+<script lang="ts">
+  import { lightboxSrc } from '../js/state';
 
   function closeLightbox() {
     lightboxSrc.set(null);

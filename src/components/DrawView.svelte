@@ -1,9 +1,9 @@
-<script>
-  import { decks, currentDeckId, currentCard, drawState, history, cardFlipped, showText, lightboxSrc, STORAGE_KEYS } from '../js/state.js';
-  import { iGet, iPut, iIdx } from '../js/db.js';
-  import { shuffle, fmtTime } from '../js/utils.js';
-  import { showToast } from '../js/toastStore.js';
-  import { syncRole, roomCode, clientCount, connectedPlayers, sendCardTo, pushCard, pushFlip, pushClear, autoShareMode, globalBroadcastCard } from '../js/sync.js';
+<script lang="ts">
+  import { decks, currentDeckId, currentCard, drawState, history, cardFlipped, showText, lightboxSrc, STORAGE_KEYS, type Card } from '../js/state';
+  import { iGet, iPut, iIdx } from '../js/db';
+  import { shuffle, fmtTime } from '../js/utils';
+  import { showToast } from '../js/toastStore';
+  import { syncRole, roomCode, clientCount, connectedPlayers, sendCardTo, pushCard, pushFlip, pushClear, autoShareMode, globalBroadcastCard } from '../js/sync';
 
   let animateReveal = false;
 
@@ -18,7 +18,9 @@
   $: progressPercent = deck && ds && deck.cardCount > 0 ? (ds.drawn.length / deck.cardCount * 100) : 0;
   $: hasBoth = $currentCard && $currentCard.front && $currentCard.back;
   $: lastDrawnTime = (() => {
-    const h = $history[$currentDeckId];
+    const deckId = $currentDeckId;
+    if (!deckId) return '';
+    const h = $history[deckId];
     if (h && h.length) {
       return fmtTime(h[0].drawnAt);
     }
@@ -31,7 +33,7 @@
     }
   }
 
-  async function loadDeckState(deckId) {
+  async function loadDeckState(deckId: string) {
     if (!deckId) return;
 
     let dsVal = await iGet('drawState', deckId);
@@ -39,21 +41,21 @@
       const cards = await iIdx('cards', 'deckId', deckId);
       dsVal = {
         deckId,
-        remaining: shuffle(cards.map(c => c.id)),
+        remaining: shuffle(cards.map((c: any) => c.id)),
         drawn: []
       };
       await iPut('drawState', dsVal);
     }
 
     drawState.update(store => {
-      store[deckId] = dsVal;
+      store[deckId] = dsVal as any;
       return store;
     });
 
     const hist = await iIdx('history', 'deckId', deckId);
-    hist.sort((a, b) => b.drawnAt - a.drawnAt);
+    hist.sort((a: any, b: any) => b.drawnAt - a.drawnAt);
     history.update(store => {
-      store[deckId] = hist;
+      store[deckId] = hist as any[];
       return store;
     });
 
@@ -70,8 +72,9 @@
   }
 
   async function drawCard() {
-    if (!$currentDeckId) return;
-    const dsVal = $drawState[$currentDeckId];
+    const deckId = $currentDeckId;
+    if (!deckId) return;
+    const dsVal = $drawState[deckId];
     if (!dsVal || !dsVal.remaining.length) {
       showToast('Deck exhausted — reshuffle to continue', 'error');
       return;
@@ -81,7 +84,7 @@
     const newDrawn = [...dsVal.drawn, cid];
 
     const updatedDs = {
-      deckId: $currentDeckId,
+      deckId: deckId,
       remaining: newRemaining,
       drawn: newDrawn
     };
@@ -89,11 +92,12 @@
     await iPut('drawState', updatedDs);
 
     drawState.update(store => {
-      store[$currentDeckId] = updatedDs;
+      store[deckId] = updatedDs;
       return store;
     });
 
-    const card = await iGet('cards', cid);
+    const card = await iGet<Card>('cards', cid);
+    if (!card) return;
     currentCard.set(card);
     cardFlipped.set(false);
     showText.set(false);
@@ -107,17 +111,17 @@
     }
 
     const entry = {
-      deckId: $currentDeckId,
+      deckId: deckId,
       cardId: cid,
       drawnAt: Date.now()
     };
     await iPut('history', entry);
 
     history.update(store => {
-      const h = store[$currentDeckId] || [];
+      const h = store[deckId] || [];
       return {
         ...store,
-        [$currentDeckId]: [entry, ...h]
+        [deckId]: [entry, ...h]
       };
     });
 
@@ -128,10 +132,11 @@
   }
 
   async function reshuffleDeck() {
-    if (!$currentDeckId) return;
-    const cards = await iIdx('cards', 'deckId', $currentDeckId);
+    const deckId = $currentDeckId;
+    if (!deckId) return;
+    const cards = await iIdx<Card>('cards', 'deckId', deckId);
     const updatedDs = {
-      deckId: $currentDeckId,
+      deckId: deckId,
       remaining: shuffle(cards.map(c => c.id)),
       drawn: []
     };
@@ -139,7 +144,7 @@
     await iPut('drawState', updatedDs);
 
     drawState.update(store => {
-      store[$currentDeckId] = updatedDs;
+      store[deckId] = updatedDs;
       return store;
     });
 

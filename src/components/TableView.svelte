@@ -1,4 +1,4 @@
-<script>
+<script lang="ts">
   import { onDestroy, onMount } from "svelte";
   import QRCode from "qrcode";
   import {
@@ -29,19 +29,19 @@
     addVirtualPlayer,
     removeVirtualPlayer,
     discardVirtualCard,
-  } from "../js/sync.js";
-  import { currentCard, lightboxSrc } from "../js/state.js";
+  } from "../js/sync";
+  import { currentCard, lightboxSrc } from "../js/state";
 
   let inputCode = "";
-  let qrCanvas;
+  let qrCanvas: HTMLCanvasElement;
   let showPassMenu = false;
   let showNotesEditor = false;
   let showDiscardPile = false;
   let newNoteText = "";
 
   let newVirtualName = "";
-  let inspectingPlayerId = null;
-  let virtualCardFlips = {}; // Dictionary of cardId -> boolean
+  let inspectingPlayerId: string | null = null;
+  let virtualCardFlips: Record<string, boolean> = {}; // Dictionary of cardId -> boolean
 
   function handleAddVirtual() {
     if (newVirtualName.trim()) {
@@ -109,7 +109,9 @@
     const updatedAnnotations = [...($sharedCard.annotations || []), newNoteText.trim()];
     
     sharedCard.update(card => {
-      card.annotations = updatedAnnotations;
+      if (card) {
+        card.annotations = updatedAnnotations;
+      }
       return card;
     });
 
@@ -128,12 +130,14 @@
     newNoteText = "";
   }
 
-  function removeAnnotation(index) {
+  function removeAnnotation(index: number) {
     if (!$sharedCard) return;
     const updatedAnnotations = ($sharedCard.annotations || []).filter((_, i) => i !== index);
     
     sharedCard.update(card => {
-      card.annotations = updatedAnnotations;
+      if (card) {
+        card.annotations = updatedAnnotations;
+      }
       return card;
     });
 
@@ -660,7 +664,7 @@
                     <button
                       class="btn btn-danger btn-xs"
                       style="padding: 4px 6px;"
-                      on:click={() => discardVirtualCard(inspectingPlayerId, card)}
+                      on:click={() => inspectingPlayerId && discardVirtualCard(inspectingPlayerId, card)}
                     >
                       🗑️ Discard
                     </button>

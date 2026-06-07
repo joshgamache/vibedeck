@@ -1,11 +1,19 @@
-<script>
-  import { decks, currentDeckId, drawState, history, splitDeckId, lightboxSrc, currentCard, cardFlipped, showText } from '../js/state.js';
-  import { iIdx, iBulkPut, iPut, iDel, iDelIdx } from '../js/db.js';
-  import { shuffle } from '../js/utils.js';
-  import { showToast } from '../js/toastStore.js';
+<script lang="ts">
+  import { decks, currentDeckId, drawState, history, splitDeckId, lightboxSrc, currentCard, cardFlipped, showText, type Deck, type Card, type DrawState } from '../js/state';
+  import { iIdx, iBulkPut, iPut, iDel, iDelIdx } from '../js/db';
+  import { shuffle } from '../js/utils';
+  import { showToast } from '../js/toastStore';
 
-  let splitCards = [];
-  let splitRanges = [];
+  interface SplitRange {
+    id: string;
+    name: string;
+    start: string;
+    end: string;
+    color: string;
+  }
+
+  let splitCards: Card[] = [];
+  let splitRanges: SplitRange[] = [];
   let splitAfter = 'keep'; // 'keep' or 'delete'
 
   const RCOLORS = ['#d4943a', '#7aabee', '#9b7fd4', '#5db87f', '#e07070', '#c4a840', '#6bccc4', '#e09060'];
@@ -22,12 +30,12 @@
     }
   }
 
-  async function loadSplitCards(deckId) {
-    splitCards = await iIdx('cards', 'deckId', deckId);
+  async function loadSplitCards(deckId: string): Promise<void> {
+    splitCards = await iIdx<Card>('cards', 'deckId', deckId);
     splitCards.sort((a, b) => a.pageNum - b.pageNum);
   }
 
-  function rangeForPage(pnum, ranges) {
+  function rangeForPage(pnum: number, ranges: SplitRange[]): SplitRange | null {
     return ranges.find(r => {
       const s = parseInt(r.start) || 0;
       const e = parseInt(r.end) || 0;
@@ -35,13 +43,13 @@
     }) || null;
   }
 
-  function getRangeCardCount(r, cards) {
+  function getRangeCardCount(r: SplitRange, cards: Card[]): number {
     const s = parseInt(r.start) || 0;
     const e = parseInt(r.end) || 0;
     return cards.filter(c => s > 0 && e >= s && c.pageNum >= s && c.pageNum <= e).length;
   }
 
-  function addSplitRange() {
+  function addSplitRange(): void {
     const color = RCOLORS[splitRanges.length % RCOLORS.length];
     splitRanges = [...splitRanges, {
       id: 'r' + Date.now() + Math.random().toString(36).slice(2, 5),
@@ -52,13 +60,14 @@
     }];
   }
 
-  function delRange(id) {
+  function delRange(id: string): void {
     splitRanges = splitRanges.filter(r => r.id !== id);
   }
 
-  async function confirmSplit() {
+  async function confirmSplit(): Promise<void> {
     const originalDeckId = $splitDeckId;
-    const newDecks = [];
+    if (!originalDeckId) return;
+    const newDecks: Deck[] = [];
 
     for (const r of splitRanges) {
       const s = parseInt(r.start);
@@ -73,25 +82,25 @@
         deckId: nid
       }));
 
-      await iBulkPut('cards', nCards);
+      await iBulkPut<Card>('cards', nCards);
 
-      const ndeck = {
+      const ndeck: Deck = {
         id: nid,
         name: r.name,
         cardCount: nCards.length,
         createdAt: Date.now(),
-        previewImage: nCards[0]?.front || null
+        previewImage: nCards[0]?.front || ''
       };
 
-      await iPut('decks', ndeck);
+      await iPut<Deck>('decks', ndeck);
 
-      const dsVal = {
+      const dsVal: DrawState = {
         deckId: nid,
         remaining: shuffle(nCards.map(c => c.id)),
         drawn: []
       };
 
-      await iPut('drawState', dsVal);
+      await iPut<DrawState>('drawState', dsVal);
 
       // Update global states
       drawState.update(store => {
@@ -204,7 +213,7 @@
                 <div class="range-sep">–</div>
                 <div class="range-field">
                   <div class="range-field-label">To page</div>
-                  <input type="number" class="range-num-input" min="1" placeholder={splitCards.length || '?'} bind:value={r.end} />
+                  <input type="number" class="range-num-input" min="1" placeholder={splitCards.length ? String(splitCards.length) : '?'} bind:value={r.end} />
                 </div>
               </div>
               <div class="range-card-count">

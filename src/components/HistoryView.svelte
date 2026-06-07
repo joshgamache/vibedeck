@@ -1,26 +1,31 @@
-<script>
-  import { currentDeckId, history, decks, lightboxSrc } from '../js/state.js';
-  import { iGet, iDelIdx } from '../js/db.js';
-  import { showToast } from '../js/toastStore.js';
+<script lang="ts">
+  import { currentDeckId, history, decks, lightboxSrc, type HistoryEntry, type Card } from '../js/state';
+  import { iGet, iDelIdx } from '../js/db';
+  import { showToast } from '../js/toastStore';
 
-  let historyCards = [];
+  interface HistoryCard extends HistoryEntry {
+    front: string;
+    pageNum: number;
+  }
+
+  let historyCards: HistoryCard[] = [];
 
   $: activeDeck = $decks.find(d => d.id === $currentDeckId);
-  $: currentHistory = $history[$currentDeckId] || [];
+  $: currentHistory = ($currentDeckId ? $history[$currentDeckId] : []) || [];
 
   // Reactively fetch card details for history list
   $: {
     loadHistoryDetails(currentHistory);
   }
 
-  async function loadHistoryDetails(hist) {
+  async function loadHistoryDetails(hist: HistoryEntry[]): Promise<void> {
     if (!hist || !hist.length) {
       historyCards = [];
       return;
     }
-    const cards = [];
+    const cards: HistoryCard[] = [];
     for (const entry of hist) {
-      const card = await iGet('cards', entry.cardId);
+      const card = await iGet<Card>('cards', entry.cardId);
       if (card) {
         cards.push({
           ...entry,
@@ -32,19 +37,20 @@
     historyCards = cards;
   }
 
-  async function clearHistory() {
-    if (!$currentDeckId || !confirm('Clear draw history for this deck?')) return;
-    await iDelIdx('history', 'deckId', $currentDeckId);
+  async function clearHistory(): Promise<void> {
+    const deckId = $currentDeckId;
+    if (!deckId || !confirm('Clear draw history for this deck?')) return;
+    await iDelIdx('history', 'deckId', deckId);
 
     history.update(h => {
       const next = { ...h };
-      next[$currentDeckId] = [];
+      next[deckId] = [];
       return next;
     });
     showToast('History cleared');
   }
 
-  function zoomCard(src) {
+  function zoomCard(src: string): void {
     lightboxSrc.set(src);
   }
 </script>

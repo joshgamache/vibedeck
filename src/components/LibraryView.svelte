@@ -1,11 +1,11 @@
-<script>
-  import { decks, currentDeckId, activeTab, importModalOpen, splitDeckId, currentCard, cardFlipped, showText, drawState, history, STORAGE_KEYS } from '../js/state.js';
-  import { iDel, iDelIdx } from '../js/db.js';
-  import { fmtDate } from '../js/utils.js';
-  import { showToast } from '../js/toastStore.js';
-  import { syncRole, pushClear } from '../js/sync.js';
+<script lang="ts">
+  import { decks, currentDeckId, activeTab, importModalOpen, splitDeckId, currentCard, cardFlipped, showText, drawState, history, STORAGE_KEYS } from '../js/state';
+  import { iDel, iDelIdx } from '../js/db';
+  import { fmtDate } from '../js/utils';
+  import { showToast } from '../js/toastStore';
+  import { syncRole, pushClear } from '../js/sync';
 
-  function selectDeck(id) {
+  function selectDeck(id: string): void {
     currentDeckId.set(id);
     currentCard.set(null);
     cardFlipped.set(false);
@@ -17,7 +17,7 @@
     }
   }
 
-  async function deleteDeck(id, name) {
+  async function deleteDeck(id: string, name: string): Promise<void> {
     if (!confirm(`Delete "${name}" and all its cards?`)) return;
 
     await iDel('decks', id);
@@ -43,7 +43,7 @@
     // If active deck is deleted, select another one or null
     currentDeckId.update(curr => {
       if (curr === id) {
-        let nextId = null;
+        let nextId: string | null = null;
         decks.subscribe(list => {
           if (list.length) nextId = list[0].id;
         })();
@@ -62,11 +62,11 @@
     showToast('Deck deleted');
   }
 
-  function openSplit(id) {
+  function openSplit(id: string): void {
     splitDeckId.set(id);
   }
 
-  function openImport() {
+  function openImport(): void {
     importModalOpen.set(true);
   }
 </script>

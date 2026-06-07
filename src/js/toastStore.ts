@@ -1,8 +1,14 @@
 import { writable } from "svelte/store";
 
-export const toasts = writable([]);
+export interface Toast {
+  id: string;
+  message: string;
+  type: string;
+}
 
-export function showToast(message, type = "") {
+export const toasts = writable<Toast[]>([]);
+
+export function showToast(message: string, type: string = ""): void {
   const id = Date.now() + Math.random().toString(36).slice(2, 7);
   toasts.update((list) => [...list, { id, message, type }]);
   setTimeout(() => {

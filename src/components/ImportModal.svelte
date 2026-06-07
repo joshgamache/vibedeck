@@ -1,15 +1,21 @@
-<script>
-  import { importModalOpen, decks, currentDeckId, drawState, history, STORAGE_KEYS } from '../js/state.js';
-  import { iBulkPut, iPut } from '../js/db.js';
-  import { shuffle } from '../js/utils.js';
-  import { showToast } from '../js/toastStore.js';
+<script lang="ts">
+  import { importModalOpen, decks, currentDeckId, drawState, history, STORAGE_KEYS, type Deck, type Card, type DrawState } from '../js/state';
+  import { iBulkPut, iPut } from '../js/db';
+  import { shuffle } from '../js/utils';
+  import { showToast } from '../js/toastStore';
 
-  let impFile = null;
+  interface PreviewPage {
+    img: string;
+    text: string;
+    pageNum: number;
+  }
+
+  let impFile: File | null = null;
   let impName = '';
   let impLayout = 'single';
   let impQuality = 2.0;
   let impStep = 1;
-  let prevPages = [];
+  let prevPages: PreviewPage[] = [];
 
   let previewLoading = false;
   let previewLoadingProgress = 0;
@@ -19,7 +25,7 @@
   let importProgressText = '';
   let isDragOver = false;
 
-  let fileInputEl;
+  let fileInputEl: HTMLInputElement;
 
   $: isNextDisabled = !(impFile && impName.trim());
   $: p0 = prevPages[0];
@@ -47,8 +53,9 @@
     }
   }
 
-  function onFileSelected(e) {
-    const f = e.target.files[0];
+  function onFileSelected(e: Event): void {
+    const target = e.target as HTMLInputElement;
+    const f = target.files?.[0];
     if (!f) return;
     impFile = f;
     if (!impName) {
@@ -56,19 +63,19 @@
     }
   }
 
-  function handleDragOver(e) {
+  function handleDragOver(e: DragEvent): void {
     e.preventDefault();
     isDragOver = true;
   }
 
-  function handleDragLeave() {
+  function handleDragLeave(): void {
     isDragOver = false;
   }
 
-  function handleDrop(e) {
+  function handleDrop(e: DragEvent): void {
     e.preventDefault();
     isDragOver = false;
-    const f = e.dataTransfer.files[0];
+    const f = e.dataTransfer?.files?.[0];
     if (f && f.type === 'application/pdf') {
       impFile = f;
       if (!impName) {
@@ -77,7 +84,7 @@
     }
   }
 
-  async function importNext() {
+  async function importNext(): Promise<void> {
     if (!impFile) return;
     impStep = 2;
     previewLoading = true;
@@ -87,7 +94,7 @@
 
     try {
       const ab = await impFile.arrayBuffer();
-      const pdf = await window.pdfjsLib.getDocument({ data: ab }).promise;
+      const pdf = await (window as any).pdfjsLib.getDocument({ data: ab }).promise;
       const total = pdf.numPages;
 
       for (let i = 1; i <= total; i++) {
@@ -101,7 +108,7 @@
         let text = '';
         try {
           const tc = await page.getTextContent();
-          text = tc.items.map(x => x.str).join(' ').trim();
+          text = tc.items.map((x: any) => x.str).join(' ').trim();
         } catch (e) {
           // fallback
         }
@@ -117,13 +124,13 @@
 
       previewLoading = false;
       previewContentVisible = true;
-    } catch (err) {
+    } catch (err: any) {
       showToast('Failed to read PDF: ' + err.message, 'error');
       impStep = 1;
     }
   }
 
-  async function startImport() {
+  async function startImport(): Promise<void> {
     if (!impFile) return;
     if (!impName.trim()) return;
 
@@ -133,9 +140,9 @@
 
     try {
       const ab = await impFile.arrayBuffer();
-      const pdf = await window.pdfjsLib.getDocument({ data: ab }).promise;
+      const pdf = await (window as any).pdfjsLib.getDocument({ data: ab }).promise;
       const total = pdf.numPages;
-      const pages = [];
+      const pages: PreviewPage[] = [];
 
       for (let i = 1; i <= total; i++) {
         const page = await pdf.getPage(i);
@@ -148,7 +155,7 @@
         let text = '';
         try {
           const tc = await page.getTextContent();
-          text = tc.items.map(x => x.str).join(' ').trim();
+          text = tc.items.map((x: any) => x.str).join(' ').trim();
         } catch (e) {
           // fallback
         }
@@ -165,11 +172,11 @@
       importProgress = 88;
       importProgressText = 'Building cards…';
       const deckId = 'deck_' + Date.now();
-      const cards = [];
+      const cards: Card[] = [];
 
       if (impLayout === 'single') {
-        pages.forEach((p, i) => cards.push({
-          id: `${deckId}_${i}`,
+        pages.forEach((p, idx) => cards.push({
+          id: `${deckId}_${idx}`,
           deckId,
           pageNum: p.pageNum,
           front: p.img,
@@ -188,7 +195,7 @@
             id: `${deckId}_${i}`,
             deckId,
             pageNum: p0_page.pageNum,
-            front: frontPage ? frontPage.img : null,
+            front: frontPage ? frontPage.img : '',
             back: backPage ? backPage.img : null,
             text: (p0_page.text || '') + ' ' + (p1_page ? p1_page.text : '')
           });
@@ -197,23 +204,23 @@
 
       importProgress = 92;
       importProgressText = 'Saving to storage…';
-      await iBulkPut('cards', cards);
+      await iBulkPut<Card>('cards', cards);
 
-      const deck = {
+      const deck: Deck = {
         id: deckId,
         name: impName,
         cardCount: cards.length,
         createdAt: Date.now(),
-        previewImage: cards[0]?.front || null
+        previewImage: cards[0]?.front || ''
       };
-      await iPut('decks', deck);
+      await iPut<Deck>('decks', deck);
 
-      const dsVal = {
+      const dsVal: DrawState = {
         deckId,
         remaining: shuffle(cards.map(c => c.id)),
         drawn: []
       };
-      await iPut('drawState', dsVal);
+      await iPut<DrawState>('drawState', dsVal);
 
       // Update global states
       drawState.update(store => {
@@ -235,14 +242,14 @@
         importModalOpen.set(false);
         showToast(`${deck.name} imported — ${cards.length} cards`, 'success');
       }, 500);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
       showToast('Import failed: ' + err.message, 'error');
       impStep = 2;
     }
   }
 
-  function triggerFileChoose() {
+  function triggerFileChoose(): void {
     fileInputEl.click();
   }
 </script>

@@ -1,7 +1,7 @@
-<script>
+<script lang="ts">
   import { onMount } from 'svelte';
-  import { activeTab, importModalOpen, decks, currentDeckId, drawState, STORAGE_KEYS } from './js/state.js';
-  import { initDB, iAll } from './js/db.js';
+  import { activeTab, importModalOpen, decks, currentDeckId, drawState, STORAGE_KEYS, type Deck, type DrawState } from './js/state';
+  import { initDB, iAll } from './js/db';
 
   import DrawView from './components/DrawView.svelte';
   import HistoryView from './components/HistoryView.svelte';
@@ -11,7 +11,7 @@
   import SplitModal from './components/SplitModal.svelte';
   import Lightbox from './components/Lightbox.svelte';
   import ToastContainer from './components/ToastContainer.svelte';
-  import { syncRole, syncState, joinTable } from './js/sync.js';
+  import { syncRole, syncState, joinTable } from './js/sync';
 
   onMount(async () => {
     // Configure PDF.js Global Worker
@@ -23,11 +23,11 @@
     await initDB();
 
     // Load initial decks
-    const loadedDecks = await iAll('decks');
+    const loadedDecks = await iAll<Deck>('decks');
     decks.set(loadedDecks);
 
     // Load drawState cache
-    const dsList = await iAll('drawState');
+    const dsList = await iAll<DrawState>('drawState');
     drawState.update(store => {
       dsList.forEach(d => {
         store[d.deckId] = d;

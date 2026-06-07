@@ -1,5 +1,5 @@
-<script>
-  import { toasts } from '../js/toastStore.js';
+<script lang="ts">
+  import { toasts } from '../js/toastStore';
 </script>
 
 <div class="toast-container" id="toast-container">

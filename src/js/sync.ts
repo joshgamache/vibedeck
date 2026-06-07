@@ -1,27 +1,35 @@
 import { writable, get } from "svelte/store";
-import { Peer } from "peerjs";
-import { showToast } from "./toastStore.js";
-import { currentCard, cardFlipped } from "./state.js";
+import { Peer, type DataConnection } from "peerjs";
+import { showToast } from "./toastStore";
+import { currentCard, cardFlipped, type Card } from "./state";
 
-export const syncRole = writable("none"); // "none", "host", "client"
-export const roomCode = writable("");
-export const syncState = writable("disconnected"); // "disconnected", "connecting", "connected", "error"
-export const clientCount = writable(0);
-export const sharedCard = writable(null); // Focused card on player's screen
-export const sharedCardFlipped = writable(false);
-export const sharedCardShowText = writable(false);
-export const syncError = writable("");
+export const syncRole = writable<"none" | "host" | "client">("none");
+export const roomCode = writable<string>("");
+export const syncState = writable<"disconnected" | "connecting" | "connected" | "error">(
+  "disconnected",
+);
+export const clientCount = writable<number>(0);
+export const sharedCard = writable<Card | null>(null);
+export const sharedCardFlipped = writable<boolean>(false);
+export const sharedCardShowText = writable<boolean>(false);
+export const syncError = writable<string>("");
+
+export interface Player {
+  peerId: string;
+  name: string;
+  isVirtual: boolean;
+}
 
 // Player/GM connection extensions
-export const playerName = writable(localStorage.getItem("playerName") || "Player");
-export const connectedPlayers = writable([]); // Array of { peerId, name, isVirtual }
-export const receivedCards = writable([]); // Array of card objects (Player's hand)
-export const globalBroadcastCard = writable(null); // Last public card broadcasted by GM
-export const globalBroadcastCardFlipped = writable(false); // Flip state of last public card
-export const autoShareMode = writable("global"); // "global", "private", "player"
-export const autoShareTarget = writable(""); // peerId of target player
-export const discardPile = writable([]); // Array of card objects (Shared discard pile)
-export const virtualPlayerHands = writable({}); // Dictionary of peerId -> card[]
+export const playerName = writable<string>(localStorage.getItem("playerName") || "Player");
+export const connectedPlayers = writable<Player[]>([]); // Array of { peerId, name, isVirtual }
+export const receivedCards = writable<Card[]>([]); // Array of card objects (Player's hand)
+export const globalBroadcastCard = writable<Card | null>(null); // Last public card broadcasted by GM
+export const globalBroadcastCardFlipped = writable<boolean>(false); // Flip state of last public card
+export const autoShareMode = writable<string>("global"); // "global", "private", "player"
+export const autoShareTarget = writable<string>(""); // peerId of target player
+export const discardPile = writable<Card[]>([]); // Array of card objects (Shared discard pile)
+export const virtualPlayerHands = writable<Record<string, Card[]>>({}); // Dictionary of peerId -> card[]
 
 // Automatically save player name changes
 playerName.subscribe((val) => {
@@ -30,10 +38,10 @@ playerName.subscribe((val) => {
   }
 });
 
-let peer = null;
-let activeConnections = [];
+let peer: Peer | null = null;
+let activeConnections: DataConnection[] = [];
 
-export function startHosting() {
+export function startHosting(): void {
   disconnect();
 
   syncState.set("connecting");
@@ -50,7 +58,7 @@ export function startHosting() {
     peer = new Peer(peerId, {
       debug: 1, // Only log errors
     });
-  } catch (e) {
+  } catch (e: any) {
     console.error(e);
     syncState.set("error");
     syncError.set("Could not initialize peer connection.");
@@ -68,7 +76,7 @@ export function startHosting() {
     }
   });
 
-  peer.on("connection", (conn) => {
+  peer.on("connection", (conn: DataConnection) => {
     conn.on("open", () => {
       // Avoid duplicate connections in our tracking
       if (!activeConnections.find((c) => c.peer === conn.peer)) {
@@ -76,7 +84,7 @@ export function startHosting() {
       }
     });
 
-    conn.on("data", (data) => {
+    conn.on("data", (data: any) => {
       if (data && typeof data === "object") {
         if (data.type === "JOIN_NAME") {
           connectedPlayers.update((list) => {
@@ -273,7 +281,7 @@ export function startHosting() {
       });
     });
 
-    conn.on("error", (err) => {
+    conn.on("error", (err: any) => {
       console.error("Connection error:", err);
       activeConnections = activeConnections.filter((c) => c !== conn);
       connectedPlayers.update((list) => list.filter((p) => p.peerId !== conn.peer));
@@ -292,7 +300,7 @@ export function startHosting() {
     });
   });
 
-  peer.on("error", (err) => {
+  peer.on("error", (err: any) => {
     console.error("Peer error:", err);
     if (err.type === "unavailable-id") {
       // Retry once with a new code
@@ -305,7 +313,7 @@ export function startHosting() {
   });
 }
 
-export function joinTable(code, name) {
+export function joinTable(code: string, name?: string): void {
   if (!code || code.trim().length !== 6) {
     showToast("Room code must be 6 digits", "error");
     return;
@@ -322,7 +330,7 @@ export function joinTable(code, name) {
     peer = new Peer({
       debug: 1,
     });
-  } catch (e) {
+  } catch (e: any) {
     console.error(e);
     syncState.set("error");
     syncError.set("Could not initialize peer connection.");
@@ -331,7 +339,7 @@ export function joinTable(code, name) {
 
   peer.on("open", () => {
     const hostPeerId = `vibedeck-room-${code}`;
-    const conn = peer.connect(hostPeerId, {
+    const conn = peer!.connect(hostPeerId, {
       reliable: true,
     });
 
@@ -340,13 +348,14 @@ export function joinTable(code, name) {
       showToast("Connected to GM's table!", "success");
       activeConnections = [conn];
 
+      // Send name to GM immediately
       conn.send({
         type: "JOIN_NAME",
         name: name || get(playerName),
       });
     });
 
-    conn.on("data", (data) => {
+    conn.on("data", (data: any) => {
       if (data && typeof data === "object") {
         if (data.type === "CARD_PUSH") {
           if (data.card) {
@@ -415,7 +424,8 @@ export function joinTable(code, name) {
           }
         } else if (data.type === "TRADE_CONFIRMED") {
           receivedCards.update((list) => list.filter((c) => c.id !== data.cardId));
-          if (get(sharedCard) && get(sharedCard).id === data.cardId) {
+          const currentFocused = get(sharedCard);
+          if (currentFocused && currentFocused.id === data.cardId) {
             sharedCard.set(get(globalBroadcastCard));
             sharedCardFlipped.set(get(globalBroadcastCardFlipped));
             sharedCardShowText.set(false);
@@ -427,7 +437,7 @@ export function joinTable(code, name) {
           discardPile.set(data.cards);
         } else if (data.type === "PLAYERS_SYNC") {
           const myId = peer ? peer.id : null;
-          const filteredPlayers = data.players.filter((p) => p.peerId !== myId);
+          const filteredPlayers = data.players.filter((p: Player) => p.peerId !== myId);
           connectedPlayers.set(filteredPlayers);
           clientCount.set(data.players.length);
         }
@@ -440,7 +450,7 @@ export function joinTable(code, name) {
       disconnect();
     });
 
-    conn.on("error", (err) => {
+    conn.on("error", (err: any) => {
       console.error("Connection error:", err);
       syncState.set("error");
       syncError.set("Lost connection to GM.");
@@ -448,7 +458,7 @@ export function joinTable(code, name) {
     });
   });
 
-  peer.on("error", (err) => {
+  peer.on("error", (err: any) => {
     console.error("Peer error:", err);
     syncState.set("error");
     if (err.type === "peer-unavailable") {
@@ -460,7 +470,7 @@ export function joinTable(code, name) {
   });
 }
 
-export function disconnect() {
+export function disconnect(): void {
   if (activeConnections.length) {
     activeConnections.forEach((conn) => {
       try {
@@ -491,7 +501,7 @@ export function disconnect() {
   virtualPlayerHands.set({});
 }
 
-export function pushCard(card) {
+export function pushCard(card: Card | null): void {
   const role = get(syncRole);
   if (role !== "host") return;
 
@@ -508,6 +518,7 @@ export function pushCard(card) {
           back: card.back,
           text: card.text,
           pageNum: card.pageNum,
+          annotations: card.annotations,
         }
       : null,
     cardFlipped: get(cardFlipped),
@@ -521,9 +532,9 @@ export function pushCard(card) {
   });
 }
 
-export function sendCardTo(peerId, card) {
+export function sendCardTo(peerId: string, card: Card | null): void {
   const role = get(syncRole);
-  if (role !== "host") return;
+  if (role !== "host" || !card) return;
 
   const player = get(connectedPlayers).find((p) => p.peerId === peerId);
   if (!player) return;
@@ -559,6 +570,7 @@ export function sendCardTo(peerId, card) {
             back: card.back,
             text: card.text,
             pageNum: card.pageNum,
+            annotations: card.annotations,
           }
         : null,
       cardFlipped: false,
@@ -569,7 +581,7 @@ export function sendCardTo(peerId, card) {
   }
 }
 
-export function pushFlip(isFlipped) {
+export function pushFlip(isFlipped: boolean): void {
   const role = get(syncRole);
   if (role !== "host") return;
 
@@ -589,7 +601,7 @@ export function pushFlip(isFlipped) {
   }
 }
 
-export function pushClear() {
+export function pushClear(): void {
   const role = get(syncRole);
   if (role !== "host") return;
 
@@ -605,7 +617,7 @@ export function pushClear() {
   });
 }
 
-export function discardTableCard() {
+export function discardTableCard(): void {
   const role = get(syncRole);
   if (role !== "host") return;
 
@@ -633,7 +645,7 @@ export function discardTableCard() {
   }
 }
 
-export function recallCardToGM(cardId) {
+export function recallCardToGM(cardId: string): void {
   const role = get(syncRole);
   if (role !== "host") return;
 
@@ -659,7 +671,7 @@ export function recallCardToGM(cardId) {
   }
 }
 
-export function discardCardToPile(card) {
+export function discardCardToPile(card: Card | null): void {
   if (!card) return;
   const role = get(syncRole);
   if (role === "client") {
@@ -671,7 +683,8 @@ export function discardCardToPile(card) {
       });
     }
     receivedCards.update((list) => list.filter((c) => c.id !== card.id));
-    if (get(sharedCard) && get(sharedCard).id === card.id) {
+    const currentFocused = get(sharedCard);
+    if (currentFocused && currentFocused.id === card.id) {
       sharedCard.set(get(globalBroadcastCard));
       sharedCardFlipped.set(get(globalBroadcastCardFlipped));
       sharedCardShowText.set(false);
@@ -696,7 +709,7 @@ export function discardCardToPile(card) {
   }
 }
 
-export function requestRecall(cardId) {
+export function requestRecall(cardId: string): void {
   const role = get(syncRole);
   if (role === "client") {
     const conn = activeConnections[0];
@@ -711,7 +724,7 @@ export function requestRecall(cardId) {
   }
 }
 
-export function passCardTo(targetPeerId, card) {
+export function passCardTo(targetPeerId: string, card: Card | null): void {
   if (!card || !targetPeerId) return;
   const role = get(syncRole);
   if (role === "client") {
@@ -726,7 +739,7 @@ export function passCardTo(targetPeerId, card) {
   }
 }
 
-export function addVirtualPlayer(name) {
+export function addVirtualPlayer(name: string): void {
   const role = get(syncRole);
   if (role !== "host") return;
 
@@ -755,7 +768,7 @@ export function addVirtualPlayer(name) {
   showToast(`Virtual seat "${name}" added`, "success");
 }
 
-export function removeVirtualPlayer(peerId) {
+export function removeVirtualPlayer(peerId: string): void {
   const role = get(syncRole);
   if (role !== "host") return;
 
@@ -785,7 +798,7 @@ export function removeVirtualPlayer(peerId) {
   showToast(`Virtual seat "${name}" removed`);
 }
 
-export function discardVirtualCard(peerId, card) {
+export function discardVirtualCard(peerId: string, card: Card): void {
   const role = get(syncRole);
   if (role !== "host") return;
 
@@ -823,4 +836,3 @@ export function discardVirtualCard(peerId, card) {
 
   showToast(`Discarded ${playerNameText}'s card`, "success");
 }
-
