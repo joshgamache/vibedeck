@@ -25,6 +25,10 @@
     requestRecall,
     passCardTo,
     pushCard,
+    virtualPlayerHands,
+    addVirtualPlayer,
+    removeVirtualPlayer,
+    discardVirtualCard,
   } from "../js/sync.js";
   import { currentCard, lightboxSrc } from "../js/state.js";
 
@@ -34,6 +38,17 @@
   let showNotesEditor = false;
   let showDiscardPile = false;
   let newNoteText = "";
+
+  let newVirtualName = "";
+  let inspectingPlayerId = null;
+  let virtualCardFlips = {}; // Dictionary of cardId -> boolean
+
+  function handleAddVirtual() {
+    if (newVirtualName.trim()) {
+      addVirtualPlayer(newVirtualName.trim());
+      newVirtualName = "";
+    }
+  }
 
   $: isEditable = $syncRole === "host" || ($sharedCard && $receivedCards.some(c => c.id === $sharedCard.id));
 
@@ -223,22 +238,56 @@
         </div>
       </div>
 
-      <div class="player-list-section">
-        <h3>Connected Players</h3>
+      <div class="seats-manager-panel">
+        <div class="seats-header-row">
+          <h3>Table Seats ({$connectedPlayers.length})</h3>
+          <div class="add-virtual-form">
+            <input
+              type="text"
+              placeholder="Virtual Seat Name"
+              bind:value={newVirtualName}
+              on:keydown={(e) => e.key === "Enter" && handleAddVirtual()}
+            />
+            <button class="btn btn-secondary btn-ghost btn-xs" on:click={handleAddVirtual} disabled={!newVirtualName.trim()}>
+              + Add Seat
+            </button>
+          </div>
+        </div>
+
         {#if $connectedPlayers.length === 0}
-          <p class="no-players-text">Waiting for players to connect...</p>
+          <p class="no-players-text">No players or virtual seats at the table.</p>
         {:else}
-          <div class="player-grid">
+          <div class="seats-list">
             {#each $connectedPlayers as player (player.peerId)}
-              <div class="player-item">
-                <span class="player-name">👤 {player.name}</span>
-                {#if $currentCard}
-                  <button class="btn btn-ghost btn-send-private" on:click={() => sendCardTo(player.peerId, $currentCard)}>
-                    📨 Send Current Card
-                  </button>
-                {:else}
-                  <span style="font-size: 0.72rem; color: var(--text-muted); font-style: italic;">No active card drawn</span>
-                {/if}
+              <div class="seat-item" class:virtual-seat={player.isVirtual}>
+                <div class="seat-info">
+                  <span class="seat-icon">{player.isVirtual ? "🤖" : "👤"}</span>
+                  <span class="seat-name">{player.name}</span>
+                  <span class="seat-type-badge" class:virtual={player.isVirtual}>
+                    {player.isVirtual ? "Virtual" : "Peered"}
+                  </span>
+                  {#if player.isVirtual}
+                    <span class="seat-card-count">({($virtualPlayerHands[player.peerId] || []).length} cards)</span>
+                  {/if}
+                </div>
+                <div class="seat-actions">
+                  {#if player.isVirtual}
+                    <button class="btn btn-secondary btn-xs" on:click={() => inspectingPlayerId = player.peerId}>
+                      👁️ Inspect
+                    </button>
+                    <button class="btn-kick" on:click={() => removeVirtualPlayer(player.peerId)} title="Remove seat">
+                      ✕
+                    </button>
+                  {:else}
+                    {#if $currentCard}
+                      <button class="btn btn-ghost btn-send-private btn-xs" on:click={() => sendCardTo(player.peerId, $currentCard)}>
+                        📨 Send Card
+                      </button>
+                    {:else}
+                      <span class="peered-label">Connected</span>
+                    {/if}
+                  {/if}
+                </div>
               </div>
             {/each}
           </div>
@@ -562,6 +611,68 @@
       </div>
     </div>
   {/if}
+
+  {#if inspectingPlayerId}
+    {@const targetPlayer = $connectedPlayers.find(p => p.peerId === inspectingPlayerId)}
+    {@const targetHand = $virtualPlayerHands[inspectingPlayerId] || []}
+    <!-- svelte-ignore a11y-click-events-have-key-events -->
+    <!-- svelte-ignore a11y-no-static-element-interactions -->
+    <div class="discard-modal-overlay" on:click={() => inspectingPlayerId = null}>
+      <div class="discard-modal" on:click|stopPropagation>
+        <div class="discard-modal-header">
+          <h3>🤖 {targetPlayer ? targetPlayer.name : "Virtual Player"}'s Hand ({targetHand.length})</h3>
+          <button class="btn-close-modal" on:click={() => inspectingPlayerId = null}>×</button>
+        </div>
+
+        <div class="discard-modal-content">
+          {#if targetHand.length === 0}
+            <p class="empty-pile-text">This player's hand is currently empty.</p>
+          {:else}
+            <div class="discard-grid">
+              {#each targetHand as card (card.id)}
+                <div class="discard-item">
+                  <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
+                  <img
+                    src={virtualCardFlips[card.id] ? card.back : card.front}
+                    alt=""
+                    on:click={() => lightboxSrc.set(virtualCardFlips[card.id] ? card.back : card.front)}
+                  />
+                  <div class="discard-item-info">
+                    <span>Page {card.pageNum}</span>
+                    {#if card.annotations && card.annotations.length > 0}
+                      <div class="discard-item-notes">
+                        {#each card.annotations as note}
+                          <span class="mini-note">📌 {note}</span>
+                        {/each}
+                      </div>
+                    {/if}
+                  </div>
+                  <div class="virtual-card-actions">
+                    {#if card.back}
+                      <button
+                        class="btn btn-secondary btn-xs"
+                        style="flex-grow: 1; padding: 4px 6px;"
+                        on:click={() => virtualCardFlips[card.id] = !virtualCardFlips[card.id]}
+                      >
+                        🔄 {virtualCardFlips[card.id] ? "Front" : "Back"}
+                      </button>
+                    {/if}
+                    <button
+                      class="btn btn-danger btn-xs"
+                      style="padding: 4px 6px;"
+                      on:click={() => discardVirtualCard(inspectingPlayerId, card)}
+                    >
+                      🗑️ Discard
+                    </button>
+                  </div>
+                </div>
+              {/each}
+            </div>
+          {/if}
+        </div>
+      </div>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -795,52 +906,12 @@
   }
 
   /* Connected Player Grid */
-  .player-list-section {
-    background: var(--bg2);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 20px;
-  }
-  .player-list-section h3 {
-    font-family: "Cinzel", serif;
-    color: var(--amber);
-    font-size: 0.85rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    margin-bottom: 12px;
-  }
   .no-players-text {
     color: var(--text-muted);
     font-size: 0.9rem;
     font-style: italic;
     text-align: center;
     padding: 10px;
-  }
-  .player-grid {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-  .player-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    background: var(--bg3);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 10px 14px;
-    transition: border-color 0.2s;
-  }
-  .player-item:hover {
-    border-color: var(--border2);
-  }
-  .player-name {
-    font-family: "Crimson Pro", Georgia, serif;
-    font-size: 1.05rem;
-    color: var(--text);
-    display: flex;
-    align-items: center;
-    gap: 6px;
   }
   .btn-send-private {
     font-size: 0.65rem;
@@ -1388,6 +1459,144 @@
   .btn-recall-card {
     font-size: 0.7rem;
     padding: 6px;
+    width: 100%;
+    margin-top: auto;
+  }
+
+  /* Seats Manager Panel */
+  .seats-manager-panel {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    margin-top: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    text-align: left;
+  }
+  .seats-header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 12px;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .seats-header-row h3 {
+    font-family: "Cinzel", serif;
+    font-size: 0.95rem;
+    color: var(--amber);
+    margin: 0;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .add-virtual-form {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .add-virtual-form input {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 6px 10px;
+    font-size: 0.82rem;
+    font-family: "Crimson Pro", serif;
+    outline: none;
+    width: 160px;
+  }
+  .add-virtual-form input:focus {
+    border-color: var(--amber-dim);
+  }
+  .seats-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .seat-item {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: border-color 0.2s;
+  }
+  .seat-item:hover {
+    border-color: var(--border2);
+  }
+  .seat-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: "Crimson Pro", serif;
+    font-size: 0.95rem;
+  }
+  .seat-icon {
+    font-size: 1.1rem;
+  }
+  .seat-name {
+    color: var(--text);
+    font-weight: 600;
+  }
+  .seat-type-badge {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    padding: 2px 6px;
+    border-radius: 4px;
+    letter-spacing: 0.05em;
+    font-weight: bold;
+    background: rgba(64, 112, 184, 0.15);
+    border: 1px solid rgba(64, 112, 184, 0.3);
+    color: #7aabee;
+  }
+  .seat-type-badge.virtual {
+    background: rgba(212, 148, 58, 0.12);
+    border: 1px solid rgba(212, 148, 58, 0.3);
+    color: var(--amber2);
+  }
+  .seat-card-count {
+    font-size: 0.8rem;
+    color: var(--text-dim);
+  }
+  .seat-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .peered-label {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    font-style: italic;
+  }
+  .btn.btn-xs {
+    padding: 4px 8px;
+    font-size: 0.65rem;
+    border-radius: 4px;
+    min-height: auto;
+  }
+  .btn-kick {
+    background: none;
+    border: 1px solid transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 0.9rem;
+    padding: 4px 6px;
+    line-height: 1;
+    transition: color 0.2s, border-color 0.2s;
+  }
+  .btn-kick:hover {
+    color: var(--red);
+    border-color: rgba(196, 80, 64, 0.3);
+    background: rgba(196, 80, 64, 0.05);
+  }
+  .virtual-card-actions {
+    display: flex;
+    gap: 6px;
     width: 100%;
     margin-top: auto;
   }

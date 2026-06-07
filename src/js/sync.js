@@ -14,13 +14,14 @@ export const syncError = writable("");
 
 // Player/GM connection extensions
 export const playerName = writable(localStorage.getItem("playerName") || "Player");
-export const connectedPlayers = writable([]); // Array of { peerId, name }
+export const connectedPlayers = writable([]); // Array of { peerId, name, isVirtual }
 export const receivedCards = writable([]); // Array of card objects (Player's hand)
 export const globalBroadcastCard = writable(null); // Last public card broadcasted by GM
 export const globalBroadcastCardFlipped = writable(false); // Flip state of last public card
 export const autoShareMode = writable("global"); // "global", "private", "player"
 export const autoShareTarget = writable(""); // peerId of target player
 export const discardPile = writable([]); // Array of card objects (Shared discard pile)
+export const virtualPlayerHands = writable({}); // Dictionary of peerId -> card[]
 
 // Automatically save player name changes
 playerName.subscribe((val) => {
@@ -80,7 +81,7 @@ export function startHosting() {
         if (data.type === "JOIN_NAME") {
           connectedPlayers.update((list) => {
             const filtered = list.filter((p) => p.peerId !== conn.peer);
-            return [...filtered, { peerId: conn.peer, name: data.name }];
+            return [...filtered, { peerId: conn.peer, name: data.name, isVirtual: false }];
           });
           clientCount.set(get(connectedPlayers).length);
           showToast(`${data.name} joined the table`, "success");
@@ -127,6 +128,34 @@ export function startHosting() {
           const recipient = get(connectedPlayers).find((p) => p.peerId === data.targetPeerId);
           const recipientName = recipient ? recipient.name : "another player";
 
+          // Broker virtual player trade
+          if (recipient && recipient.isVirtual) {
+            virtualPlayerHands.update((hands) => {
+              const hand = hands[data.targetPeerId] || [];
+              if (hand.some((c) => c.id === data.card.id)) return hands;
+              return { ...hands, [data.targetPeerId]: [...hand, data.card] };
+            });
+
+            conn.send({
+              type: "TRADE_CONFIRMED",
+              cardId: data.card.id,
+              targetName: recipientName,
+            });
+
+            const announcementText = `👤 ${senderName} passed a card to virtual player ${recipientName}`;
+            activeConnections.forEach((c) => {
+              if (c.open) {
+                c.send({
+                  type: "TRADE_ANNOUNCEMENT",
+                  text: announcementText,
+                });
+              }
+            });
+            showToast(announcementText, "success");
+            return;
+          }
+
+          // Peered player trade routing
           const recipientConn = activeConnections.find((c) => c.peer === data.targetPeerId);
           if (recipientConn && recipientConn.open) {
             recipientConn.send({
@@ -311,7 +340,6 @@ export function joinTable(code, name) {
       showToast("Connected to GM's table!", "success");
       activeConnections = [conn];
 
-      // Send name to GM immediately
       conn.send({
         type: "JOIN_NAME",
         name: name || get(playerName),
@@ -460,6 +488,7 @@ export function disconnect() {
   connectedPlayers.set([]);
   receivedCards.set([]);
   discardPile.set([]);
+  virtualPlayerHands.set({});
 }
 
 export function pushCard(card) {
@@ -496,6 +525,29 @@ export function sendCardTo(peerId, card) {
   const role = get(syncRole);
   if (role !== "host") return;
 
+  const player = get(connectedPlayers).find((p) => p.peerId === peerId);
+  if (!player) return;
+
+  if (player.isVirtual) {
+    virtualPlayerHands.update((hands) => {
+      const hand = hands[peerId] || [];
+      if (hand.some((c) => c.id === card.id)) return hands;
+      return { ...hands, [peerId]: [...hand, card] };
+    });
+
+    const text = `👤 GM sent a card privately to virtual player ${player.name}`;
+    activeConnections.forEach((c) => {
+      if (c.open) {
+        c.send({
+          type: "TRADE_ANNOUNCEMENT",
+          text: text,
+        });
+      }
+    });
+    showToast(`Sent card to virtual player ${player.name}`, "success");
+    return;
+  }
+
   const conn = activeConnections.find((c) => c.peer === peerId);
   if (conn && conn.open) {
     conn.send({
@@ -513,9 +565,7 @@ export function sendCardTo(peerId, card) {
       isPrivate: true,
     });
 
-    const player = get(connectedPlayers).find((p) => p.peerId === peerId);
-    const name = player ? player.name : "player";
-    showToast(`Sent card privately to ${name}`, "success");
+    showToast(`Sent card privately to ${player.name}`, "success");
   }
 }
 
@@ -675,3 +725,102 @@ export function passCardTo(targetPeerId, card) {
     }
   }
 }
+
+export function addVirtualPlayer(name) {
+  const role = get(syncRole);
+  if (role !== "host") return;
+
+  const peerId = `virtual-${Math.random().toString(36).substring(2, 9)}`;
+  connectedPlayers.update((list) => {
+    return [...list, { peerId, name, isVirtual: true }];
+  });
+  clientCount.set(get(connectedPlayers).length);
+
+  // Initialize empty hand for virtual player
+  virtualPlayerHands.update((hands) => {
+    return { ...hands, [peerId]: [] };
+  });
+
+  // Sync updated players list to all peered players
+  const currentPlayers = get(connectedPlayers);
+  activeConnections.forEach((c) => {
+    if (c.open) {
+      c.send({
+        type: "PLAYERS_SYNC",
+        players: currentPlayers,
+      });
+    }
+  });
+
+  showToast(`Virtual seat "${name}" added`, "success");
+}
+
+export function removeVirtualPlayer(peerId) {
+  const role = get(syncRole);
+  if (role !== "host") return;
+
+  const player = get(connectedPlayers).find((p) => p.peerId === peerId);
+  const name = player ? player.name : "Virtual Player";
+
+  connectedPlayers.update((list) => list.filter((p) => p.peerId !== peerId));
+  clientCount.set(get(connectedPlayers).length);
+
+  virtualPlayerHands.update((hands) => {
+    const updated = { ...hands };
+    delete updated[peerId];
+    return updated;
+  });
+
+  // Sync updated players list to all peered players
+  const currentPlayers = get(connectedPlayers);
+  activeConnections.forEach((c) => {
+    if (c.open) {
+      c.send({
+        type: "PLAYERS_SYNC",
+        players: currentPlayers,
+      });
+    }
+  });
+
+  showToast(`Virtual seat "${name}" removed`);
+}
+
+export function discardVirtualCard(peerId, card) {
+  const role = get(syncRole);
+  if (role !== "host") return;
+
+  virtualPlayerHands.update((hands) => {
+    const hand = hands[peerId] || [];
+    return { ...hands, [peerId]: hand.filter((c) => c.id !== card.id) };
+  });
+
+  // Put card in shared discard pile
+  discardPile.update((list) => [...list, card]);
+  const currentList = get(discardPile);
+
+  // Sync updated discard pile to all peered players
+  activeConnections.forEach((c) => {
+    if (c.open) {
+      c.send({
+        type: "DISCARD_PILE_SYNC",
+        cards: currentList,
+      });
+    }
+  });
+
+  // Announce discard to all players
+  const player = get(connectedPlayers).find((p) => p.peerId === peerId);
+  const playerNameText = player ? player.name : "Virtual player";
+  const announcementText = `🗑️ Virtual player ${playerNameText} discarded a card to the discard pile`;
+  activeConnections.forEach((c) => {
+    if (c.open) {
+      c.send({
+        type: "TRADE_ANNOUNCEMENT",
+        text: announcementText,
+      });
+    }
+  });
+
+  showToast(`Discarded ${playerNameText}'s card`, "success");
+}
+
