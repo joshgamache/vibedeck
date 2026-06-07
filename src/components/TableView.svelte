@@ -17,6 +17,8 @@
     joinTable,
     disconnect,
     sendCardTo,
+    globalBroadcastCard,
+    globalBroadcastCardFlipped,
   } from "../js/sync.js";
   import { currentCard, lightboxSrc } from "../js/state.js";
 
@@ -60,10 +62,25 @@
     sharedCardFlipped.update((v) => !v);
   }
 
+  function returnToGlobal() {
+    sharedCard.set($globalBroadcastCard);
+    sharedCardFlipped.set($globalBroadcastCardFlipped);
+    sharedCardShowText.set(false);
+  }
+
+  function discardCard(cardId) {
+    receivedCards.update((list) => list.filter((c) => c.id !== cardId));
+    if ($sharedCard && $sharedCard.id === cardId) {
+      returnToGlobal();
+    }
+  }
+
   function clearHand() {
     if (confirm("Discard all cards in your hand?")) {
       receivedCards.set([]);
-      sharedCard.set(null);
+      if (!$globalBroadcastCard || ($sharedCard && $sharedCard.id !== $globalBroadcastCard.id)) {
+        returnToGlobal();
+      }
     }
   }
 
@@ -219,6 +236,24 @@
           </div>
         {:else}
           <div class="card-stage">
+            {#if $sharedCard}
+              {#if $globalBroadcastCard && $sharedCard.id !== $globalBroadcastCard.id}
+                <div class="private-card-banner">
+                  <span>🕵️ Viewing Private Hand Card</span>
+                  <button class="btn btn-ghost btn-sm btn-return-table" on:click={returnToGlobal}>
+                    Return to Shared Card
+                  </button>
+                </div>
+              {:else}
+                <!-- Show simple notification that it's a private card if table is clear -->
+                {#if !$globalBroadcastCard && $receivedCards.some(c => c.id === $sharedCard.id)}
+                  <div class="private-card-banner">
+                    <span>🕵️ Viewing Private Hand Card</span>
+                  </div>
+                {/if}
+              {/if}
+            {/if}
+
             <!-- svelte-ignore a11y-click-events-have-key-events -->
             <!-- svelte-ignore a11y-no-static-element-interactions -->
             <div
@@ -270,6 +305,14 @@
                 >
                   ≡ Text
                 </button>
+                {#if $receivedCards.some(c => c.id === $sharedCard.id)}
+                  <button 
+                    class="btn btn-ghost btn-text-toggle btn-discard-card"
+                    on:click={() => discardCard($sharedCard.id)}
+                  >
+                    🗑️ Discard
+                  </button>
+                {/if}
               </div>
             </div>
 
@@ -305,6 +348,13 @@
                 >
                   <img src={card.front} alt="" />
                   <span class="hand-card-num">p{card.pageNum}</span>
+                  <button 
+                    class="btn-thumb-discard" 
+                    title="Discard Card"
+                    on:click|stopPropagation={() => discardCard(card.id)}
+                  >
+                    ×
+                  </button>
                 </div>
               {/each}
             </div>
@@ -782,5 +832,71 @@
   .btn-text-toggle {
     font-size: 0.65rem;
     padding: 6px 12px;
+  }
+
+  .private-card-banner {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(212, 148, 58, 0.06);
+    border: 1px solid rgba(212, 148, 58, 0.2);
+    border-radius: 8px;
+    padding: 8px 12px;
+    margin-bottom: 16px;
+    width: 100%;
+    max-width: 420px;
+    box-sizing: border-box;
+    font-family: "Cinzel", serif;
+    font-size: 0.72rem;
+    color: var(--amber2);
+    letter-spacing: 0.05em;
+  }
+  .btn-return-table {
+    font-size: 0.65rem;
+    padding: 4px 8px;
+    background: rgba(212, 148, 58, 0.1);
+    border: 1px solid rgba(212, 148, 58, 0.35);
+    color: var(--amber2);
+  }
+  .btn-return-table:hover {
+    background: rgba(212, 148, 58, 0.2);
+    border-color: var(--amber);
+  }
+  .btn-discard-card {
+    border-color: rgba(196, 80, 64, 0.4) !important;
+    color: var(--red) !important;
+  }
+  .btn-discard-card:hover {
+    background: rgba(196, 80, 64, 0.1) !important;
+    border-color: var(--red) !important;
+  }
+  .btn-thumb-discard {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: rgba(8, 8, 16, 0.85);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-size: 0.75rem;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.2s, color 0.2s, background-color 0.2s;
+    padding: 0;
+    z-index: 10;
+  }
+  .hand-card-thumb:hover .btn-thumb-discard {
+    opacity: 1;
+  }
+  .btn-thumb-discard:hover {
+    background: var(--red);
+    color: var(--text);
+    border-color: var(--red);
   }
 </style>

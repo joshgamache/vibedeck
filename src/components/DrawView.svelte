@@ -3,9 +3,15 @@
   import { iGet, iPut, iIdx } from '../js/db.js';
   import { shuffle, fmtTime } from '../js/utils.js';
   import { showToast } from '../js/toastStore.js';
-  import { syncRole, roomCode, clientCount, connectedPlayers, sendCardTo, pushCard, pushFlip, pushClear } from '../js/sync.js';
+  import { syncRole, roomCode, clientCount, connectedPlayers, sendCardTo, pushCard, pushFlip, pushClear, autoShareMode, globalBroadcastCard } from '../js/sync.js';
 
   let animateReveal = false;
+
+  $: {
+    if ($syncRole === 'host' && $autoShareMode !== 'global' && $autoShareMode !== 'private' && !$connectedPlayers.some(p => p.peerId === $autoShareMode)) {
+      autoShareMode.set('private');
+    }
+  }
 
   $: ds = $currentDeckId ? $drawState[$currentDeckId] : null;
   $: deck = $currentDeckId ? $decks.find(d => d.id === $currentDeckId) : null;
@@ -93,7 +99,11 @@
     showText.set(false);
 
     if ($syncRole === 'host') {
-      pushCard(card);
+      if ($autoShareMode === 'global') {
+        pushCard(card);
+      } else if ($autoShareMode !== 'private') {
+        sendCardTo($autoShareMode, card);
+      }
     }
 
     const entry = {
@@ -287,18 +297,63 @@
     </div>
   </div>
 
-  {#if $syncRole === 'host' && $currentCard}
-    <div class="sync-distribute-panel">
-      <div class="distribute-title">Assign Card Privately:</div>
-      {#if $connectedPlayers.length === 0}
-        <div class="no-players-hint">No players connected to table</div>
-      {:else}
-        <div class="distribute-buttons">
-          {#each $connectedPlayers as player (player.peerId)}
-            <button class="btn btn-secondary btn-distribute" on:click={() => sendCardTo(player.peerId, $currentCard)}>
-              👤 {player.name}
+  {#if $syncRole === 'host'}
+    <div class="gm-table-panel">
+      <div class="gm-panel-header">
+        <h3>GM Table Controls</h3>
+        <span class="gm-connection-status">📡 {$clientCount} player{$clientCount === 1 ? '' : 's'} connected (Code: {$roomCode})</span>
+      </div>
+
+      <!-- AUTO-SHARE OPTIONS -->
+      <div class="gm-panel-section">
+        <label for="auto-share-select" class="gm-panel-label">Auto-Share Mode:</label>
+        <div class="gm-select-wrapper">
+          <select id="auto-share-select" class="gm-select" bind:value={$autoShareMode}>
+            <option value="global">📡 Auto-Share to Table (Global)</option>
+            <option value="private">🕵️ Keep Private to GM</option>
+            {#if $connectedPlayers.length > 0}
+              <optgroup label="Auto-Send to Player Hand">
+                {#each $connectedPlayers as player (player.peerId)}
+                  <option value={player.peerId}>👤 Send to {player.name}'s Hand</option>
+                {/each}
+              </optgroup>
+            {/if}
+          </select>
+        </div>
+      </div>
+
+      <!-- MANUAL ACTIONS FOR CURRENT CARD -->
+      {#if $currentCard}
+        <div class="gm-panel-section">
+          <div class="gm-panel-label">Manual Board Actions:</div>
+          <div class="gm-action-buttons">
+            <button class="btn btn-primary btn-sm" on:click={() => pushCard($currentCard)}>
+              📢 Broadcast to Table
             </button>
-          {/each}
+            <button class="btn btn-secondary btn-sm btn-clear-table" on:click={pushClear}>
+              ❌ Clear Table Screen
+            </button>
+          </div>
+        </div>
+
+        <div class="gm-panel-section">
+          <div class="gm-panel-label">Send Privately to Hand:</div>
+          {#if $connectedPlayers.length === 0}
+            <div class="no-players-hint">No players connected to table</div>
+          {:else}
+            <div class="distribute-buttons">
+              {#each $connectedPlayers as player (player.peerId)}
+                <button class="btn btn-secondary btn-distribute" on:click={() => sendCardTo(player.peerId, $currentCard)}>
+                  👤 {player.name}
+                </button>
+              {/each}
+              <button class="btn btn-secondary btn-distribute btn-all-hands" on:click={() => {
+                $connectedPlayers.forEach(p => sendCardTo(p.peerId, $currentCard));
+              }}>
+                👥 All Hands
+              </button>
+            </div>
+          {/if}
         </div>
       {/if}
     </div>
@@ -306,23 +361,88 @@
 </div>
 
 <style>
-  .sync-distribute-panel {
+  .gm-table-panel {
     width: 100%;
-    max-width: 420px;
-    margin: 20px auto 0;
-    padding: 16px;
+    max-width: 440px;
+    margin: 24px auto 0;
+    padding: 20px;
     background: var(--bg2);
-    border: 1px dashed var(--border2);
+    border: 1px solid var(--border);
+    border-top: 2px solid var(--amber);
     border-radius: var(--radius);
-    text-align: center;
+    box-shadow: var(--shadow);
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    text-align: left;
   }
-  .distribute-title {
+  .gm-panel-header {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 10px;
+  }
+  .gm-panel-header h3 {
     font-family: "Cinzel", serif;
+    font-size: 0.95rem;
+    color: var(--amber);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    margin: 0;
+  }
+  .gm-connection-status {
     font-size: 0.75rem;
     color: var(--text-dim);
-    letter-spacing: 0.08em;
+  }
+  .gm-panel-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .gm-panel-label {
+    font-family: "Cinzel", serif;
+    font-size: 0.72rem;
+    color: var(--text-dim);
+    letter-spacing: 0.05em;
     text-transform: uppercase;
-    margin-bottom: 12px;
+  }
+  .gm-select-wrapper {
+    position: relative;
+    width: 100%;
+  }
+  .gm-select {
+    width: 100%;
+    background: var(--bg3);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-family: "Crimson Pro", serif;
+    font-size: 0.95rem;
+    outline: none;
+    cursor: pointer;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .gm-select:focus {
+    border-color: var(--amber-dim);
+    box-shadow: 0 0 8px rgba(212, 148, 58, 0.1);
+  }
+  .gm-action-buttons {
+    display: flex;
+    gap: 10px;
+  }
+  .gm-action-buttons button {
+    flex: 1;
+    font-size: 0.75rem;
+    padding: 8px 12px;
+  }
+  .btn-clear-table {
+    border-color: var(--red);
+    color: var(--red);
+  }
+  .btn-clear-table:hover {
+    background: rgba(196, 80, 64, 0.1);
   }
   .no-players-hint {
     font-size: 0.85rem;
@@ -333,10 +453,9 @@
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
-    justify-content: center;
   }
   .btn-distribute {
-    font-size: 0.7rem;
+    font-size: 0.72rem;
     padding: 6px 12px;
     background: rgba(212, 148, 58, 0.08);
     border: 1px solid rgba(212, 148, 58, 0.3);
@@ -346,5 +465,12 @@
     background: rgba(212, 148, 58, 0.18);
     border-color: var(--amber);
     color: var(--amber2);
+  }
+  .btn-all-hands {
+    border-color: var(--blue);
+    color: var(--blue);
+  }
+  .btn-all-hands:hover {
+    background: rgba(64, 112, 184, 0.1);
   }
 </style>

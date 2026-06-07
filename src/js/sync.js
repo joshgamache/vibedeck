@@ -7,7 +7,7 @@ export const syncRole = writable("none"); // "none", "host", "client"
 export const roomCode = writable("");
 export const syncState = writable("disconnected"); // "disconnected", "connecting", "connected", "error"
 export const clientCount = writable(0);
-export const sharedCard = writable(null);
+export const sharedCard = writable(null); // Focused card on player's screen
 export const sharedCardFlipped = writable(false);
 export const sharedCardShowText = writable(false);
 export const syncError = writable("");
@@ -15,7 +15,11 @@ export const syncError = writable("");
 // Player/GM connection extensions
 export const playerName = writable(localStorage.getItem("playerName") || "Player");
 export const connectedPlayers = writable([]); // Array of { peerId, name }
-export const receivedCards = writable([]); // Array of card objects
+export const receivedCards = writable([]); // Array of card objects (Player's hand)
+export const globalBroadcastCard = writable(null); // Last public card broadcasted by GM
+export const globalBroadcastCardFlipped = writable(false); // Flip state of last public card
+export const autoShareMode = writable("global"); // "global", "private", "player"
+export const autoShareTarget = writable(""); // peerId of target player
 
 // Automatically save player name changes
 playerName.subscribe((val) => {
@@ -80,8 +84,8 @@ export function startHosting() {
           clientCount.set(get(connectedPlayers).length);
           showToast(`${data.name} joined the table`, "success");
 
-          // Sync current card state immediately to the new player
-          const card = get(currentCard);
+          // Sync last globally broadcasted card immediately to the new player
+          const card = get(globalBroadcastCard);
           if (card) {
             conn.send({
               type: "CARD_PUSH",
@@ -92,7 +96,7 @@ export function startHosting() {
                 text: card.text,
                 pageNum: card.pageNum,
               },
-              cardFlipped: get(cardFlipped),
+              cardFlipped: get(globalBroadcastCardFlipped),
               isPrivate: false,
             });
           }
@@ -176,31 +180,65 @@ export function joinTable(code, name) {
     conn.on("data", (data) => {
       if (data && typeof data === "object") {
         if (data.type === "CARD_PUSH") {
-          sharedCard.set(data.card);
-          sharedCardFlipped.set(data.cardFlipped || false);
-          sharedCardShowText.set(false);
-
           if (data.card) {
-            receivedCards.update((list) => {
-              // Avoid duplicates in client's hand
-              if (list.some((c) => c.id === data.card.id)) {
-                return list;
-              }
-              return [...list, data.card];
-            });
-
             if (data.isPrivate) {
+              // Add to player hand
+              receivedCards.update((list) => {
+                if (list.some((c) => c.id === data.card.id)) {
+                  return list;
+                }
+                return [...list, data.card];
+              });
               showToast("You received a private card from the GM!", "success");
+
+              // Focus on screen only if currently viewing nothing
+              if (get(sharedCard) === null) {
+                sharedCard.set(data.card);
+                sharedCardFlipped.set(data.cardFlipped || false);
+                sharedCardShowText.set(false);
+              }
             } else {
+              // Update global broadcast card state
+              globalBroadcastCard.set(data.card);
+              globalBroadcastCardFlipped.set(data.cardFlipped || false);
+
+              // Auto-focus on public cards
+              sharedCard.set(data.card);
+              sharedCardFlipped.set(data.cardFlipped || false);
+              sharedCardShowText.set(false);
               showToast("GM shared a card with everyone!", "success");
             }
+          } else {
+            // Null card is equivalent to clear
+            globalBroadcastCard.set(null);
+            globalBroadcastCardFlipped.set(false);
+            sharedCard.set(null);
+            sharedCardFlipped.set(false);
+            sharedCardShowText.set(false);
           }
         } else if (data.type === "CARD_FLIP") {
-          sharedCardFlipped.set(data.cardFlipped);
+          // Keep background state of global card correct
+          globalBroadcastCardFlipped.set(data.cardFlipped);
+
+          // Only flip player's active screen if they are focusing the global card
+          const currentFocused = get(sharedCard);
+          const globalCard = get(globalBroadcastCard);
+          if (currentFocused && globalCard && currentFocused.id === globalCard.id) {
+            sharedCardFlipped.set(data.cardFlipped);
+          }
         } else if (data.type === "CARD_CLEAR") {
-          sharedCard.set(null);
-          sharedCardFlipped.set(false);
-          sharedCardShowText.set(false);
+          const currentFocused = get(sharedCard);
+          const oldGlobal = get(globalBroadcastCard);
+
+          globalBroadcastCard.set(null);
+          globalBroadcastCardFlipped.set(false);
+
+          // Clear player screen only if they were focusing the global card
+          if (!currentFocused || (oldGlobal && currentFocused.id === oldGlobal.id)) {
+            sharedCard.set(null);
+            sharedCardFlipped.set(false);
+            sharedCardShowText.set(false);
+          }
         }
       }
     });
@@ -264,6 +302,10 @@ export function pushCard(card) {
   const role = get(syncRole);
   if (role !== "host") return;
 
+  // Track globally broadcasted card on the host
+  globalBroadcastCard.set(card);
+  globalBroadcastCardFlipped.set(get(cardFlipped));
+
   const payload = {
     type: "CARD_PUSH",
     card: card
@@ -317,19 +359,28 @@ export function pushFlip(isFlipped) {
   const role = get(syncRole);
   if (role !== "host") return;
 
-  activeConnections.forEach((conn) => {
-    if (conn.open) {
-      conn.send({
-        type: "CARD_FLIP",
-        cardFlipped: isFlipped,
-      });
-    }
-  });
+  // Only push flip if the GM is currently focusing the active table card
+  const current = get(currentCard);
+  const broadcasted = get(globalBroadcastCard);
+  if (current && broadcasted && current.id === broadcasted.id) {
+    globalBroadcastCardFlipped.set(isFlipped);
+    activeConnections.forEach((conn) => {
+      if (conn.open) {
+        conn.send({
+          type: "CARD_FLIP",
+          cardFlipped: isFlipped,
+        });
+      }
+    });
+  }
 }
 
 export function pushClear() {
   const role = get(syncRole);
   if (role !== "host") return;
+
+  globalBroadcastCard.set(null);
+  globalBroadcastCardFlipped.set(false);
 
   activeConnections.forEach((conn) => {
     if (conn.open) {
