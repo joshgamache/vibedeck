@@ -19,11 +19,23 @@
     sendCardTo,
     globalBroadcastCard,
     globalBroadcastCardFlipped,
+    discardPile,
+    discardCardToPile,
+    discardTableCard,
+    requestRecall,
+    passCardTo,
+    pushCard,
   } from "../js/sync.js";
   import { currentCard, lightboxSrc } from "../js/state.js";
 
   let inputCode = "";
   let qrCanvas;
+  let showPassMenu = false;
+  let showNotesEditor = false;
+  let showDiscardPile = false;
+  let newNoteText = "";
+
+  $: isEditable = $syncRole === "host" || ($sharedCard && $receivedCards.some(c => c.id === $sharedCard.id));
 
   $: hasBoth = $sharedCard && $sharedCard.front && $sharedCard.back;
 
@@ -68,19 +80,58 @@
     sharedCardShowText.set(false);
   }
 
-  function discardCard(cardId) {
-    receivedCards.update((list) => list.filter((c) => c.id !== cardId));
-    if ($sharedCard && $sharedCard.id === cardId) {
-      returnToGlobal();
+  function clearHand() {
+    if (confirm("Discard all cards in your hand?")) {
+      const tempHand = [...$receivedCards];
+      tempHand.forEach((card) => {
+        discardCardToPile(card);
+      });
     }
   }
 
-  function clearHand() {
-    if (confirm("Discard all cards in your hand?")) {
-      receivedCards.set([]);
-      if (!$globalBroadcastCard || ($sharedCard && $sharedCard.id !== $globalBroadcastCard.id)) {
-        returnToGlobal();
-      }
+  function addAnnotation() {
+    if (!newNoteText.trim() || !$sharedCard) return;
+    const updatedAnnotations = [...($sharedCard.annotations || []), newNoteText.trim()];
+    
+    sharedCard.update(card => {
+      card.annotations = updatedAnnotations;
+      return card;
+    });
+
+    if ($syncRole === 'host') {
+      globalBroadcastCard.set($sharedCard);
+      pushCard($sharedCard);
+    } else {
+      receivedCards.update(list => list.map(c => {
+        if (c.id === $sharedCard.id) {
+          return { ...c, annotations: updatedAnnotations };
+        }
+        return c;
+      }));
+    }
+
+    newNoteText = "";
+  }
+
+  function removeAnnotation(index) {
+    if (!$sharedCard) return;
+    const updatedAnnotations = ($sharedCard.annotations || []).filter((_, i) => i !== index);
+    
+    sharedCard.update(card => {
+      card.annotations = updatedAnnotations;
+      return card;
+    });
+
+    if ($syncRole === 'host') {
+      globalBroadcastCard.set($sharedCard);
+      pushCard($sharedCard);
+    } else {
+      receivedCards.update(list => list.map(c => {
+        if (c.id === $sharedCard.id) {
+          return { ...c, annotations: updatedAnnotations };
+        }
+        return c;
+      }));
     }
   }
 
@@ -138,7 +189,12 @@
     <div class="sync-active-container">
       <div class="status-header">
         <span class="status-indicator connected">● HOSTING</span>
-        <button class="btn btn-danger btn-ghost" on:click={disconnect}>Stop Hosting</button>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <button class="btn btn-secondary btn-ghost btn-sm" style="font-size: 0.65rem;" on:click={() => showDiscardPile = true}>
+            🗂️ Discard Pile ({$discardPile.length})
+          </button>
+          <button class="btn btn-danger btn-ghost" on:click={disconnect}>Stop Hosting</button>
+        </div>
       </div>
 
       <div class="host-info-panel">
@@ -202,15 +258,22 @@
     <div class="sync-active-container">
       <div class="status-header">
         <span class="status-indicator" class:connected={$syncState === "connected"} class:connecting={$syncState === "connecting"}>
-          {#if $syncState === "connecting"}
-            ● CONNECTING
-          {:else if $syncState === "connected"}
+          {#if $syncState === "connected"}
             ● CONNECTED AS {$playerName.toUpperCase()} (TABLE: {$roomCode})
+          {:else if $syncState === "connecting"}
+            ● CONNECTING
           {:else}
             ● DISCONNECTED
           {/if}
         </span>
-        <button class="btn btn-secondary btn-ghost" on:click={disconnect}>Disconnect</button>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          {#if $syncState === "connected"}
+            <button class="btn btn-secondary btn-ghost btn-sm" style="font-size: 0.65rem;" on:click={() => showDiscardPile = true}>
+              🗂️ Discard Pile ({$discardPile.length})
+            </button>
+          {/if}
+          <button class="btn btn-secondary btn-ghost" on:click={disconnect}>Disconnect</button>
+        </div>
       </div>
 
       {#if $syncState === "connecting"}
@@ -288,6 +351,14 @@
               </div>
             </div>
 
+            {#if $sharedCard.annotations && $sharedCard.annotations.length > 0}
+              <div class="card-annotations-display">
+                {#each $sharedCard.annotations as note}
+                  <span class="card-annotation-badge">📌 {note}</span>
+                {/each}
+              </div>
+            {/if}
+
             <div class="card-meta">
               <span class="card-num">Page {$sharedCard.pageNum}</span>
               <div style="display: flex; gap: 8px;">
@@ -305,10 +376,25 @@
                 >
                   ≡ Text
                 </button>
+                <button 
+                  class="btn btn-ghost btn-text-toggle"
+                  class:active={showNotesEditor}
+                  disabled={!$sharedCard}
+                  on:click={() => showNotesEditor = !showNotesEditor}
+                >
+                  ✏️ Notes
+                </button>
                 {#if $receivedCards.some(c => c.id === $sharedCard.id)}
                   <button 
+                    class="btn btn-ghost btn-text-toggle"
+                    class:active={showPassMenu}
+                    on:click={() => showPassMenu = !showPassMenu}
+                  >
+                    🤝 Pass
+                  </button>
+                  <button 
                     class="btn btn-ghost btn-text-toggle btn-discard-card"
-                    on:click={() => discardCard($sharedCard.id)}
+                    on:click={() => discardCardToPile($sharedCard)}
                   >
                     🗑️ Discard
                   </button>
@@ -322,6 +408,42 @@
 
             {#if $sharedCardShowText && $sharedCard.text}
               <div class="card-text-panel visible">{$sharedCard.text}</div>
+            {/if}
+
+            {#if showNotesEditor}
+              <div class="notes-editor-panel">
+                <div class="notes-header">
+                  <h5>Card Annotations</h5>
+                  <button class="btn-close-notes" on:click={() => showNotesEditor = false}>×</button>
+                </div>
+                
+                <div class="notes-list">
+                  {#each ($sharedCard.annotations || []) as note, i}
+                    <div class="note-item">
+                      <span>📌 {note}</span>
+                      {#if isEditable}
+                        <button class="btn-delete-note" on:click={() => removeAnnotation(i)}>×</button>
+                      {/if}
+                    </div>
+                  {:else}
+                    <p class="no-notes-hint">No custom notes attached to this card.</p>
+                  {/each}
+                </div>
+
+                {#if isEditable}
+                  <div class="add-note-group">
+                    <input 
+                      type="text" 
+                      placeholder="Type note (e.g., Charges: 3)" 
+                      bind:value={newNoteText}
+                      on:keydown={(e) => e.key === "Enter" && addAnnotation()}
+                    />
+                    <button class="btn btn-primary btn-sm" on:click={addAnnotation} disabled={!newNoteText.trim()}>
+                      Add
+                    </button>
+                  </div>
+                {/if}
+              </div>
             {/if}
           </div>
         {/if}
@@ -351,7 +473,7 @@
                   <button 
                     class="btn-thumb-discard" 
                     title="Discard Card"
-                    on:click|stopPropagation={() => discardCard(card.id)}
+                    on:click|stopPropagation={() => discardCardToPile(card)}
                   >
                     ×
                   </button>
@@ -361,6 +483,83 @@
           </div>
         {/if}
       {/if}
+    </div>
+  {/if}
+
+  {#if showPassMenu}
+    <!-- svelte-ignore a11y-click-events-have-key-events -->
+    <!-- svelte-ignore a11y-no-static-element-interactions -->
+    <div class="pass-menu-overlay" on:click={() => showPassMenu = false}>
+      <div class="pass-menu" on:click|stopPropagation>
+        <h4>Pass Card to:</h4>
+        {#if $connectedPlayers.length === 0}
+          <p class="no-players-hint">No other players connected</p>
+        {:else}
+          <div class="pass-player-list">
+            {#each $connectedPlayers as player (player.peerId)}
+              <button 
+                class="btn btn-secondary btn-sm pass-player-btn"
+                on:click={() => {
+                  passCardTo(player.peerId, $sharedCard);
+                  showPassMenu = false;
+                }}
+              >
+                👤 {player.name}
+              </button>
+            {/each}
+          </div>
+        {/if}
+        <button class="btn btn-ghost btn-sm close-pass-btn" on:click={() => showPassMenu = false}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  {/if}
+
+  {#if showDiscardPile}
+    <!-- svelte-ignore a11y-click-events-have-key-events -->
+    <!-- svelte-ignore a11y-no-static-element-interactions -->
+    <div class="discard-modal-overlay" on:click={() => showDiscardPile = false}>
+      <div class="discard-modal" on:click|stopPropagation>
+        <div class="discard-modal-header">
+          <h3>Shared Discard Pile ({$discardPile.length})</h3>
+          <button class="btn-close-modal" on:click={() => showDiscardPile = false}>×</button>
+        </div>
+        
+        <div class="discard-modal-content">
+          {#if $discardPile.length === 0}
+            <p class="empty-pile-text">The discard pile is currently empty.</p>
+          {:else}
+            <div class="discard-grid">
+              {#each $discardPile as card (card.id)}
+                <div class="discard-item">
+                  <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
+                  <img src={card.front} alt="" on:click={() => lightboxSrc.set(card.front)} />
+                  <div class="discard-item-info">
+                    <span>Page {card.pageNum}</span>
+                    {#if card.annotations && card.annotations.length > 0}
+                      <div class="discard-item-notes">
+                        {#each card.annotations as note}
+                          <span class="mini-note">📌 {note}</span>
+                        {/each}
+                      </div>
+                    {/if}
+                  </div>
+                  <button 
+                    class="btn btn-primary btn-sm btn-recall-card"
+                    on:click={() => {
+                      requestRecall(card.id);
+                      showDiscardPile = false;
+                    }}
+                  >
+                    🔄 Recall
+                  </button>
+                </div>
+              {/each}
+            </div>
+          {/if}
+        </div>
+      </div>
     </div>
   {/if}
 </div>
@@ -898,5 +1097,298 @@
     background: var(--red);
     color: var(--text);
     border-color: var(--red);
+  }
+
+  /* Annotations Display */
+  .card-annotations-display {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 8px 0;
+    justify-content: center;
+    width: 100%;
+  }
+  .card-annotation-badge {
+    background: rgba(212, 148, 58, 0.12);
+    border: 1px solid rgba(212, 148, 58, 0.3);
+    color: var(--amber2);
+    font-size: 0.7rem;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-family: "Crimson Pro", serif;
+  }
+
+  /* Notes Editor Panel */
+  .notes-editor-panel {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    margin-top: 16px;
+    width: 100%;
+    max-width: 420px;
+    box-sizing: border-box;
+    text-align: left;
+  }
+  .notes-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 6px;
+    margin-bottom: 8px;
+  }
+  .notes-header h5 {
+    font-family: "Cinzel", serif;
+    font-size: 0.75rem;
+    color: var(--amber);
+    margin: 0;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .btn-close-notes {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 1.1rem;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0 4px;
+  }
+  .btn-close-notes:hover {
+    color: var(--text);
+  }
+  .notes-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 120px;
+    overflow-y: auto;
+    margin-bottom: 10px;
+  }
+  .no-notes-hint {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    font-style: italic;
+    margin: 4px 0;
+  }
+  .note-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--bg4);
+    border: 1px solid var(--border2);
+    border-radius: 4px;
+    padding: 6px 10px;
+    font-size: 0.82rem;
+    color: var(--text);
+  }
+  .btn-delete-note {
+    background: none;
+    border: none;
+    color: var(--red);
+    cursor: pointer;
+    font-size: 0.95rem;
+    line-height: 1;
+    padding: 0;
+  }
+  .btn-delete-note:hover {
+    color: #ff6050;
+  }
+  .add-note-group {
+    display: flex;
+    gap: 8px;
+  }
+  .add-note-group input {
+    flex-grow: 1;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 6px 10px;
+    font-size: 0.85rem;
+    font-family: "Crimson Pro", serif;
+    outline: none;
+  }
+  .add-note-group input:focus {
+    border-color: var(--amber-dim);
+  }
+
+  /* Pass Card Menu Popover */
+  .pass-menu-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(4, 4, 8, 0.75);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+  .pass-menu {
+    background: var(--bg2);
+    border: 1px solid var(--amber-dim);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow), var(--glow);
+    padding: 20px;
+    width: 90%;
+    max-width: 300px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    text-align: center;
+  }
+  .pass-menu h4 {
+    font-family: "Cinzel", serif;
+    font-size: 0.9rem;
+    color: var(--amber);
+    margin: 0;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .pass-player-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+  .pass-player-btn {
+    text-align: left;
+    padding: 10px 14px;
+    font-family: "Crimson Pro", serif;
+    font-size: 0.95rem;
+  }
+  .close-pass-btn {
+    margin-top: 8px;
+  }
+
+  /* Discard Modal overlay */
+  .discard-modal-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(4, 4, 8, 0.75);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+  .discard-modal {
+    background: var(--bg2);
+    border: 1px solid var(--border2);
+    border-top: 3px solid var(--amber);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 20px;
+    width: 90%;
+    max-width: 500px;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    position: relative;
+  }
+  .discard-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 10px;
+  }
+  .discard-modal-header h3 {
+    font-family: "Cinzel", serif;
+    font-size: 1.05rem;
+    color: var(--amber);
+    margin: 0;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .btn-close-modal {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    font-size: 1.5rem;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+  }
+  .btn-close-modal:hover {
+    color: var(--text);
+  }
+  .discard-modal-content {
+    overflow-y: auto;
+    flex-grow: 1;
+    padding-right: 4px;
+    scrollbar-width: thin;
+  }
+  .empty-pile-text {
+    color: var(--text-muted);
+    font-style: italic;
+    padding: 30px 10px;
+    text-align: center;
+  }
+  .discard-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 16px;
+  }
+  .discard-item {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    transition: border-color 0.2s;
+    justify-content: space-between;
+  }
+  .discard-item:hover {
+    border-color: var(--border2);
+  }
+  .discard-item img {
+    width: 100%;
+    aspect-ratio: 2.5/3.5;
+    object-fit: cover;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: opacity 0.2s;
+  }
+  .discard-item img:hover {
+    opacity: 0.9;
+  }
+  .discard-item-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    text-align: left;
+  }
+  .discard-item-info span {
+    font-size: 0.72rem;
+    color: var(--text-dim);
+  }
+  .discard-item-notes {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-top: 2px;
+  }
+  .mini-note {
+    font-size: 0.62rem;
+    color: var(--amber2);
+    background: rgba(212, 148, 58, 0.08);
+    padding: 1px 4px;
+    border-radius: 2px;
+    border: 1px solid rgba(212, 148, 58, 0.15);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .btn-recall-card {
+    font-size: 0.7rem;
+    padding: 6px;
+    width: 100%;
+    margin-top: auto;
   }
 </style>

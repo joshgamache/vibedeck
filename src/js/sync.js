@@ -20,6 +20,7 @@ export const globalBroadcastCard = writable(null); // Last public card broadcast
 export const globalBroadcastCardFlipped = writable(false); // Flip state of last public card
 export const autoShareMode = writable("global"); // "global", "private", "player"
 export const autoShareTarget = writable(""); // peerId of target player
+export const discardPile = writable([]); // Array of card objects (Shared discard pile)
 
 // Automatically save player name changes
 playerName.subscribe((val) => {
@@ -84,6 +85,17 @@ export function startHosting() {
           clientCount.set(get(connectedPlayers).length);
           showToast(`${data.name} joined the table`, "success");
 
+          // Sync updated players list to all players
+          const currentPlayers = get(connectedPlayers);
+          activeConnections.forEach((c) => {
+            if (c.open) {
+              c.send({
+                type: "PLAYERS_SYNC",
+                players: currentPlayers,
+              });
+            }
+          });
+
           // Sync last globally broadcasted card immediately to the new player
           const card = get(globalBroadcastCard);
           if (card) {
@@ -100,6 +112,113 @@ export function startHosting() {
               isPrivate: false,
             });
           }
+
+          // Sync current discard pile immediately to the new player
+          const dCards = get(discardPile);
+          if (dCards.length > 0) {
+            conn.send({
+              type: "DISCARD_PILE_SYNC",
+              cards: dCards,
+            });
+          }
+        } else if (data.type === "TRADE_REQUEST") {
+          const sender = get(connectedPlayers).find((p) => p.peerId === conn.peer);
+          const senderName = sender ? sender.name : "A player";
+          const recipient = get(connectedPlayers).find((p) => p.peerId === data.targetPeerId);
+          const recipientName = recipient ? recipient.name : "another player";
+
+          const recipientConn = activeConnections.find((c) => c.peer === data.targetPeerId);
+          if (recipientConn && recipientConn.open) {
+            recipientConn.send({
+              type: "CARD_PUSH",
+              card: data.card,
+              cardFlipped: false,
+              isPrivate: true,
+              tradeFrom: senderName,
+            });
+          }
+
+          conn.send({
+            type: "TRADE_CONFIRMED",
+            cardId: data.card.id,
+            targetName: recipientName,
+          });
+
+          const announcementText = `👤 ${senderName} passed a card to ${recipientName}`;
+          activeConnections.forEach((c) => {
+            if (c.open) {
+              c.send({
+                type: "TRADE_ANNOUNCEMENT",
+                text: announcementText,
+              });
+            }
+          });
+          showToast(announcementText, "success");
+        } else if (data.type === "DISCARD_EVENT") {
+          const sender = get(connectedPlayers).find((p) => p.peerId === conn.peer);
+          const senderName = sender ? sender.name : "A player";
+
+          discardPile.update((list) => [...list, data.card]);
+          const currentList = get(discardPile);
+
+          activeConnections.forEach((c) => {
+            if (c.open) {
+              c.send({
+                type: "DISCARD_PILE_SYNC",
+                cards: currentList,
+              });
+            }
+          });
+
+          const text = `🗑️ ${senderName} discarded a card to the discard pile`;
+          activeConnections.forEach((c) => {
+            if (c.open) {
+              c.send({
+                type: "TRADE_ANNOUNCEMENT",
+                text: text,
+              });
+            }
+          });
+          showToast(text);
+        } else if (data.type === "RECALL_EVENT") {
+          const sender = get(connectedPlayers).find((p) => p.peerId === conn.peer);
+          const senderName = sender ? sender.name : "A player";
+
+          const cardId = data.cardId;
+          const currentList = get(discardPile);
+          const card = currentList.find((c) => c.id === cardId);
+
+          if (card) {
+            discardPile.update((list) => list.filter((c) => c.id !== cardId));
+            const updatedList = get(discardPile);
+
+            activeConnections.forEach((c) => {
+              if (c.open) {
+                c.send({
+                  type: "DISCARD_PILE_SYNC",
+                  cards: updatedList,
+                });
+              }
+            });
+
+            conn.send({
+              type: "CARD_PUSH",
+              card: card,
+              cardFlipped: false,
+              isPrivate: true,
+            });
+
+            const text = `🔄 ${senderName} recalled a card from the discard pile`;
+            activeConnections.forEach((c) => {
+              if (c.open) {
+                c.send({
+                  type: "TRADE_ANNOUNCEMENT",
+                  text: text,
+                });
+              }
+            });
+            showToast(text, "success");
+          }
         }
       }
     });
@@ -112,6 +231,17 @@ export function startHosting() {
       connectedPlayers.update((list) => list.filter((p) => p.peerId !== conn.peer));
       clientCount.set(get(connectedPlayers).length);
       showToast(`${name} left the table`);
+
+      // Sync updated players list to all players
+      const currentPlayers = get(connectedPlayers);
+      activeConnections.forEach((c) => {
+        if (c.open) {
+          c.send({
+            type: "PLAYERS_SYNC",
+            players: currentPlayers,
+          });
+        }
+      });
     });
 
     conn.on("error", (err) => {
@@ -119,6 +249,17 @@ export function startHosting() {
       activeConnections = activeConnections.filter((c) => c !== conn);
       connectedPlayers.update((list) => list.filter((p) => p.peerId !== conn.peer));
       clientCount.set(get(connectedPlayers).length);
+
+      // Sync updated players list to all players
+      const currentPlayers = get(connectedPlayers);
+      activeConnections.forEach((c) => {
+        if (c.open) {
+          c.send({
+            type: "PLAYERS_SYNC",
+            players: currentPlayers,
+          });
+        }
+      });
     });
   });
 
@@ -189,7 +330,12 @@ export function joinTable(code, name) {
                 }
                 return [...list, data.card];
               });
-              showToast("You received a private card from the GM!", "success");
+
+              if (data.tradeFrom) {
+                showToast(`You received a card from ${data.tradeFrom}!`, "success");
+              } else {
+                showToast("You received a private card from the GM!", "success");
+              }
 
               // Focus on screen only if currently viewing nothing
               if (get(sharedCard) === null) {
@@ -239,6 +385,23 @@ export function joinTable(code, name) {
             sharedCardFlipped.set(false);
             sharedCardShowText.set(false);
           }
+        } else if (data.type === "TRADE_CONFIRMED") {
+          receivedCards.update((list) => list.filter((c) => c.id !== data.cardId));
+          if (get(sharedCard) && get(sharedCard).id === data.cardId) {
+            sharedCard.set(get(globalBroadcastCard));
+            sharedCardFlipped.set(get(globalBroadcastCardFlipped));
+            sharedCardShowText.set(false);
+          }
+          showToast(`Passed card to ${data.targetName}`, "success");
+        } else if (data.type === "TRADE_ANNOUNCEMENT") {
+          showToast(data.text);
+        } else if (data.type === "DISCARD_PILE_SYNC") {
+          discardPile.set(data.cards);
+        } else if (data.type === "PLAYERS_SYNC") {
+          const myId = peer ? peer.id : null;
+          const filteredPlayers = data.players.filter((p) => p.peerId !== myId);
+          connectedPlayers.set(filteredPlayers);
+          clientCount.set(data.players.length);
         }
       }
     });
@@ -296,6 +459,7 @@ export function disconnect() {
   syncError.set("");
   connectedPlayers.set([]);
   receivedCards.set([]);
+  discardPile.set([]);
 }
 
 export function pushCard(card) {
@@ -389,4 +553,125 @@ export function pushClear() {
       });
     }
   });
+}
+
+export function discardTableCard() {
+  const role = get(syncRole);
+  if (role !== "host") return;
+
+  const card = get(globalBroadcastCard);
+  if (card) {
+    discardPile.update((list) => [...list, card]);
+    const currentList = get(discardPile);
+
+    globalBroadcastCard.set(null);
+    globalBroadcastCardFlipped.set(false);
+
+    activeConnections.forEach((c) => {
+      if (c.open) {
+        c.send({
+          type: "DISCARD_PILE_SYNC",
+          cards: currentList,
+        });
+        c.send({
+          type: "CARD_CLEAR",
+        });
+      }
+    });
+
+    showToast(`Discarded table card to the discard pile`);
+  }
+}
+
+export function recallCardToGM(cardId) {
+  const role = get(syncRole);
+  if (role !== "host") return;
+
+  const currentList = get(discardPile);
+  const card = currentList.find((c) => c.id === cardId);
+
+  if (card) {
+    discardPile.update((list) => list.filter((c) => c.id !== cardId));
+    const updatedList = get(discardPile);
+
+    activeConnections.forEach((c) => {
+      if (c.open) {
+        c.send({
+          type: "DISCARD_PILE_SYNC",
+          cards: updatedList,
+        });
+      }
+    });
+
+    currentCard.set(card);
+    cardFlipped.set(false);
+    showToast(`Recalled card to GM screen`, "success");
+  }
+}
+
+export function discardCardToPile(card) {
+  if (!card) return;
+  const role = get(syncRole);
+  if (role === "client") {
+    const conn = activeConnections[0];
+    if (conn && conn.open) {
+      conn.send({
+        type: "DISCARD_EVENT",
+        card: card,
+      });
+    }
+    receivedCards.update((list) => list.filter((c) => c.id !== card.id));
+    if (get(sharedCard) && get(sharedCard).id === card.id) {
+      sharedCard.set(get(globalBroadcastCard));
+      sharedCardFlipped.set(get(globalBroadcastCardFlipped));
+      sharedCardShowText.set(false);
+    }
+  } else if (role === "host") {
+    const broadcasted = get(globalBroadcastCard);
+    if (broadcasted && broadcasted.id === card.id) {
+      discardTableCard();
+    } else {
+      discardPile.update((list) => [...list, card]);
+      const currentList = get(discardPile);
+      activeConnections.forEach((c) => {
+        if (c.open) {
+          c.send({
+            type: "DISCARD_PILE_SYNC",
+            cards: currentList,
+          });
+        }
+      });
+      showToast("Card discarded to the discard pile");
+    }
+  }
+}
+
+export function requestRecall(cardId) {
+  const role = get(syncRole);
+  if (role === "client") {
+    const conn = activeConnections[0];
+    if (conn && conn.open) {
+      conn.send({
+        type: "RECALL_EVENT",
+        cardId: cardId,
+      });
+    }
+  } else if (role === "host") {
+    recallCardToGM(cardId);
+  }
+}
+
+export function passCardTo(targetPeerId, card) {
+  if (!card || !targetPeerId) return;
+  const role = get(syncRole);
+  if (role === "client") {
+    const conn = activeConnections[0];
+    if (conn && conn.open) {
+      conn.send({
+        type: "TRADE_REQUEST",
+        card: card,
+        targetPeerId: targetPeerId,
+      });
+    }
+  }
 }
