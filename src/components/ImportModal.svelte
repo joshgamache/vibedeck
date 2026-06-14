@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { importModalOpen, decks, currentDeckId, drawState, history, STORAGE_KEYS, type Deck, type Card, type DrawState } from '../js/state';
+  import { appState, STORAGE_KEYS, type Deck, type Card, type DrawState } from '../js/state.svelte';
   import { iBulkPut, iPut } from '../js/db';
   import { shuffle } from '../js/utils';
-  import { showToast } from '../js/toastStore';
+  import { showToast } from '../js/toastStore.svelte';
 
   interface PreviewPage {
     img: string;
@@ -10,34 +10,34 @@
     pageNum: number;
   }
 
-  let impFile: File | null = null;
-  let impName = '';
-  let impLayout = 'single';
-  let impQuality = 2.0;
-  let impStep = 1;
-  let prevPages: PreviewPage[] = [];
+  let impFile = $state<File | null>(null);
+  let impName = $state('');
+  let impLayout = $state('single');
+  let impQuality = $state(2.0);
+  let impStep = $state(1);
+  let prevPages = $state<PreviewPage[]>([]);
 
-  let previewLoading = false;
-  let previewLoadingProgress = 0;
-  let previewContentVisible = false;
+  let previewLoading = $state(false);
+  let previewLoadingProgress = $state(0);
+  let previewContentVisible = $state(false);
 
-  let importProgress = 0;
-  let importProgressText = '';
-  let isDragOver = false;
+  let importProgress = $state(0);
+  let importProgressText = $state('');
+  let isDragOver = $state(false);
 
-  let fileInputEl: HTMLInputElement;
+  let fileInputEl = $state<HTMLInputElement | null>(null);
 
-  $: isNextDisabled = !(impFile && impName.trim());
-  $: p0 = prevPages[0];
-  $: p1 = prevPages[1];
-  $: isAF = impLayout === 'paired-af';
-  $: frontP = isAF ? p0 : p1;
-  $: backP = isAF ? p1 : p0;
-  $: cardCount = Math.ceil(prevPages.length / 2);
+  const isNextDisabled = $derived(!(impFile && impName.trim()));
+  const p0 = $derived(prevPages[0]);
+  const p1 = $derived(prevPages[1]);
+  const isAF = $derived(impLayout === 'paired-af');
+  const frontP = $derived(isAF ? p0 : p1);
+  const backP = $derived(isAF ? p1 : p0);
+  const cardCount = $derived(Math.ceil(prevPages.length / 2));
 
   // Reset modal state when it's closed/opened
-  $: {
-    if (!$importModalOpen) {
+  $effect(() => {
+    if (!appState.importModalOpen) {
       impFile = null;
       impName = '';
       impLayout = 'single';
@@ -51,7 +51,7 @@
       importProgressText = '';
       isDragOver = false;
     }
-  }
+  });
 
   function onFileSelected(e: Event): void {
     const target = e.target as HTMLInputElement;
@@ -118,7 +118,6 @@
           text,
           pageNum: i
         });
-        prevPages = prevPages;
         previewLoadingProgress = (i / total) * 100;
       }
 
@@ -223,23 +222,17 @@
       await iPut<DrawState>('drawState', dsVal);
 
       // Update global states
-      drawState.update(store => {
-        store[deckId] = dsVal;
-        return store;
-      });
-      decks.update(list => [...list, deck]);
-      currentDeckId.set(deckId);
+      appState.drawState[deckId] = dsVal;
+      appState.decks = [...appState.decks, deck];
+      appState.currentDeckId = deckId;
       localStorage.setItem(STORAGE_KEYS.lastDeckId, deckId);
-      history.update(store => {
-        store[deckId] = [];
-        return store;
-      });
+      appState.history[deckId] = [];
 
       importProgress = 100;
       importProgressText = 'Done!';
 
       setTimeout(() => {
-        importModalOpen.set(false);
+        appState.importModalOpen = false;
         showToast(`${deck.name} imported — ${cards.length} cards`, 'success');
       }, 500);
     } catch (err: any) {
@@ -250,18 +243,20 @@
   }
 
   function triggerFileChoose(): void {
-    fileInputEl.click();
+    if (fileInputEl) {
+      fileInputEl.click();
+    }
   }
 </script>
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <!-- svelte-ignore a11y-no-static-element-interactions -->
-<div class="modal-overlay" class:open={$importModalOpen} on:click|self={() => importModalOpen.set(false)}>
+<div class="modal-overlay" class:open={appState.importModalOpen} onclick={(e) => { if (e.target === e.currentTarget) appState.importModalOpen = false; }}>
   <div class="modal">
     <div class="modal-header">
       <div class="modal-title">
         Import Deck
-        <button class="modal-close" on:click={() => importModalOpen.set(false)}>✕</button>
+        <button class="modal-close" onclick={() => appState.importModalOpen = false}>✕</button>
       </div>
       <div class="stepper">
         <div class="step-dot" class:active={impStep === 1} class:done={impStep > 1}>
@@ -294,12 +289,12 @@
             <div
               class="drop-zone"
               class:drag-over={isDragOver}
-              on:dragover={handleDragOver}
-              on:dragleave={handleDragLeave}
-              on:drop={handleDrop}
-              on:click={triggerFileChoose}
+              ondragover={handleDragOver}
+              ondragleave={handleDragLeave}
+              ondrop={handleDrop}
+              onclick={triggerFileChoose}
             >
-              <input type="file" accept=".pdf" style="display:none" bind:this={fileInputEl} on:change={onFileSelected} />
+              <input type="file" accept=".pdf" style="display:none" bind:this={fileInputEl} onchange={onFileSelected} />
               <div class="drop-zone-icon">📄</div>
               <div class="drop-zone-text">
                 {impFile ? impFile.name : 'Tap to choose PDF'}
@@ -311,31 +306,34 @@
           <div class="form-group">
             <label class="form-label">Card Layout</label>
             <div class="layout-grid">
-              <!-- svelte-ignore a11y-click-events-have-key-events -->
+              <!-- svelte-ignore a11y_click_events_have_key_events -->
+              <!-- svelte-ignore a11y_no_static_element_interactions -->
               <div
                 class="layout-option"
                 class:selected={impLayout === 'single'}
-                on:click={() => impLayout = 'single'}
+                onclick={() => impLayout = 'single'}
               >
                 <div class="layout-option-icon">🃏</div>
                 <div class="layout-option-title">Single</div>
                 <div class="layout-option-sub">1 page = 1 card, no back face</div>
               </div>
-              <!-- svelte-ignore a11y-click-events-have-key-events -->
+              <!-- svelte-ignore a11y_click_events_have_key_events -->
+              <!-- svelte-ignore a11y_no_static_element_interactions -->
               <div
                 class="layout-option"
                 class:selected={impLayout === 'paired-af'}
-                on:click={() => impLayout = 'paired-af'}
+                onclick={() => impLayout = 'paired-af'}
               >
                 <div class="layout-option-icon">↕</div>
                 <div class="layout-option-title">Paired A</div>
                 <div class="layout-option-sub">Odd pages = Front, Even pages = Back</div>
               </div>
-              <!-- svelte-ignore a11y-click-events-have-key-events -->
+              <!-- svelte-ignore a11y_click_events_have_key_events -->
+              <!-- svelte-ignore a11y_no_static_element_interactions -->
               <div
                 class="layout-option"
                 class:selected={impLayout === 'paired-bf'}
-                on:click={() => impLayout = 'paired-bf'}
+                onclick={() => impLayout = 'paired-bf'}
               >
                 <div class="layout-option-icon">↕</div>
                 <div class="layout-option-title">Paired B</div>
@@ -442,17 +440,18 @@
     <div class="modal-footer">
       <div class="draw-controls-row" style="gap:10px">
         {#if impStep === 2}
-          <button class="btn btn-secondary" on:click={() => impStep = 1}>← Back</button>
+          <button class="btn btn-secondary" onclick={() => impStep = 1}>← Back</button>
         {/if}
         {#if impStep < 3}
-          <button class="btn btn-secondary" on:click={() => importModalOpen.set(false)}>Cancel</button>
+          <button class="btn btn-secondary" onclick={() => appState.importModalOpen = false}>Cancel</button>
         {/if}
         {#if impStep === 1}
-          <button class="btn btn-primary" on:click={importNext} disabled={isNextDisabled}>Preview →</button>
+          <button class="btn btn-primary" onclick={importNext} disabled={isNextDisabled}>Preview →</button>
         {:else if impStep === 2}
-          <button class="btn btn-primary" on:click={startImport}>Import Deck →</button>
+          <button class="btn btn-primary" onclick={startImport}>Import Deck →</button>
         {/if}
       </div>
     </div>
   </div>
 </div>
+

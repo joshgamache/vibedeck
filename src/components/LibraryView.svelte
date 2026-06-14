@@ -1,18 +1,18 @@
 <script lang="ts">
-  import { decks, currentDeckId, activeTab, importModalOpen, splitDeckId, currentCard, cardFlipped, showText, drawState, history, STORAGE_KEYS } from '../js/state';
+  import { appState, STORAGE_KEYS } from '../js/state.svelte';
   import { iDel, iDelIdx } from '../js/db';
   import { fmtDate } from '../js/utils';
-  import { showToast } from '../js/toastStore';
-  import { syncRole, pushClear } from '../js/sync';
+  import { showToast } from '../js/toastStore.svelte';
+  import { syncState, pushClear } from '../js/sync.svelte';
 
   function selectDeck(id: string): void {
-    currentDeckId.set(id);
-    currentCard.set(null);
-    cardFlipped.set(false);
-    showText.set(false);
+    appState.currentDeckId = id;
+    appState.currentCard = null;
+    appState.cardFlipped = false;
+    appState.showText = false;
     localStorage.setItem(STORAGE_KEYS.lastDeckId, id);
-    activeTab.set('draw');
-    if ($syncRole === 'host') {
+    appState.activeTab = 'draw';
+    if (syncState.role === 'host') {
       pushClear();
     }
   }
@@ -26,58 +26,47 @@
     await iDel('drawState', id);
 
     // Update decks store
-    decks.update(list => list.filter(d => d.id !== id));
+    appState.decks = appState.decks.filter(d => d.id !== id);
 
     // Clean up drawState and history stores
-    drawState.update(ds => {
-      const next = { ...ds };
-      delete next[id];
-      return next;
-    });
-    history.update(h => {
-      const next = { ...h };
-      delete next[id];
-      return next;
-    });
+    delete appState.drawState[id];
+    delete appState.history[id];
 
     // If active deck is deleted, select another one or null
-    currentDeckId.update(curr => {
-      if (curr === id) {
-        let nextId: string | null = null;
-        decks.subscribe(list => {
-          if (list.length) nextId = list[0].id;
-        })();
-        currentCard.set(null);
-        cardFlipped.set(false);
-        showText.set(false);
-        localStorage.setItem(STORAGE_KEYS.lastDeckId, nextId || '');
-        if ($syncRole === 'host') {
-          pushClear();
-        }
-        return nextId;
+    if (appState.currentDeckId === id) {
+      let nextId: string | null = null;
+      if (appState.decks.length) {
+        nextId = appState.decks[0].id;
       }
-      return curr;
-    });
+      appState.currentDeckId = nextId;
+      appState.currentCard = null;
+      appState.cardFlipped = false;
+      appState.showText = false;
+      localStorage.setItem(STORAGE_KEYS.lastDeckId, nextId || '');
+      if (syncState.role === 'host') {
+        pushClear();
+      }
+    }
 
     showToast('Deck deleted');
   }
 
   function openSplit(id: string): void {
-    splitDeckId.set(id);
+    appState.splitDeckId = id;
   }
 
   function openImport(): void {
-    importModalOpen.set(true);
+    appState.importModalOpen = true;
   }
 </script>
 
 <div id="view-library" class="view active">
   <div class="library-top">
     <span class="section-title">My Decks</span>
-    <button class="btn btn-ghost" on:click={openImport}>+ Import PDF</button>
+    <button class="btn btn-ghost" onclick={openImport}>+ Import PDF</button>
   </div>
   <div id="library-content">
-    {#if $decks.length === 0}
+    {#if appState.decks.length === 0}
       <div class="empty-state">
         <div class="empty-state-icon">📚</div>
         <div class="empty-state-title">No decks imported</div>
@@ -85,8 +74,8 @@
       </div>
     {:else}
       <div class="deck-list">
-        {#each $decks as deck (deck.id)}
-          <div class="deck-item {deck.id === $currentDeckId ? 'current' : ''}">
+        {#each appState.decks as deck (deck.id)}
+          <div class="deck-item {deck.id === appState.currentDeckId ? 'current' : ''}">
             <div class="deck-item-preview">
               {#if deck.previewImage}
                 <img src={deck.previewImage} alt="" />
@@ -97,9 +86,9 @@
               <div class="deck-item-meta">{deck.cardCount} cards · {fmtDate(deck.createdAt)}</div>
             </div>
             <div class="deck-item-actions">
-              <button class="btn btn-ghost" on:click={() => selectDeck(deck.id)}>Use</button>
-              <button class="btn btn-blue btn-ghost" on:click={() => openSplit(deck.id)}>⌗ Split</button>
-              <button class="btn btn-danger btn-ghost" on:click={() => deleteDeck(deck.id, deck.name)}>✕</button>
+              <button class="btn btn-ghost" onclick={() => selectDeck(deck.id)}>Use</button>
+              <button class="btn btn-blue btn-ghost" onclick={() => openSplit(deck.id)}>⌗ Split</button>
+              <button class="btn btn-danger btn-ghost" onclick={() => deleteDeck(deck.id, deck.name)}>✕</button>
             </div>
           </div>
         {/each}
@@ -107,3 +96,4 @@
     {/if}
   </div>
 </div>
+

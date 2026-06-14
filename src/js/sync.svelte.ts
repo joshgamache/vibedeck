@@ -1,18 +1,6 @@
-import { writable, get } from "svelte/store";
 import { Peer, type DataConnection } from "peerjs";
-import { showToast } from "./toastStore";
-import { currentCard, cardFlipped, type Card } from "./state";
-
-export const syncRole = writable<"none" | "host" | "client">("none");
-export const roomCode = writable<string>("");
-export const syncState = writable<"disconnected" | "connecting" | "connected" | "error">(
-  "disconnected",
-);
-export const clientCount = writable<number>(0);
-export const sharedCard = writable<Card | null>(null);
-export const sharedCardFlipped = writable<boolean>(false);
-export const sharedCardShowText = writable<boolean>(false);
-export const syncError = writable<string>("");
+import { showToast } from "./toastStore.svelte";
+import { appState, type Card } from "./state.svelte";
 
 export interface Player {
   peerId: string;
@@ -20,23 +8,37 @@ export interface Player {
   isVirtual: boolean;
 }
 
-// Player/GM connection extensions
-export const playerName = writable<string>(localStorage.getItem("playerName") || "Player");
-export const connectedPlayers = writable<Player[]>([]); // Array of { peerId, name, isVirtual }
-export const receivedCards = writable<Card[]>([]); // Array of card objects (Player's hand)
-export const globalBroadcastCard = writable<Card | null>(null); // Last public card broadcasted by GM
-export const globalBroadcastCardFlipped = writable<boolean>(false); // Flip state of last public card
-export const autoShareMode = writable<string>("global"); // "global", "private", "player"
-export const autoShareTarget = writable<string>(""); // peerId of target player
-export const discardPile = writable<Card[]>([]); // Array of card objects (Shared discard pile)
-export const virtualPlayerHands = writable<Record<string, Card[]>>({}); // Dictionary of peerId -> card[]
+class SyncManager {
+  // Reactive properties using runes
+  role = $state<"none" | "host" | "client">("none");
+  roomCode = $state<string>("");
+  connectionState = $state<"disconnected" | "connecting" | "connected" | "error">("disconnected");
+  clientCount = $state<number>(0);
+  sharedCard = $state<Card | null>(null);
+  sharedCardFlipped = $state<boolean>(false);
+  sharedCardShowText = $state<boolean>(false);
+  syncError = $state<string>("");
 
-// Automatically save player name changes
-playerName.subscribe((val) => {
-  if (val) {
+  #playerName = $state<string>(localStorage.getItem("playerName") || "Player");
+  get playerName() {
+    return this.#playerName;
+  }
+  set playerName(val: string) {
+    this.#playerName = val;
     localStorage.setItem("playerName", val);
   }
-});
+
+  connectedPlayers = $state<Player[]>([]); // Array of { peerId, name, isVirtual }
+  receivedCards = $state<Card[]>([]); // Array of card objects (Player's hand)
+  globalBroadcastCard = $state<Card | null>(null); // Last public card broadcasted by GM
+  globalBroadcastCardFlipped = $state<boolean>(false); // Flip state of last public card
+  autoShareMode = $state<string>("global"); // "global", "private", "player"
+  autoShareTarget = $state<string>(""); // peerId of target player
+  discardPile = $state<Card[]>([]); // Array of card objects (Shared discard pile)
+  virtualPlayerHands = $state<Record<string, Card[]>>({}); // Dictionary of peerId -> card[]
+}
+
+export const syncState = new SyncManager();
 
 let peer: Peer | null = null;
 let activeConnections: DataConnection[] = [];
@@ -44,13 +46,13 @@ let activeConnections: DataConnection[] = [];
 export function startHosting(): void {
   disconnect();
 
-  syncState.set("connecting");
-  syncRole.set("host");
-  syncError.set("");
+  syncState.connectionState = "connecting";
+  syncState.role = "host";
+  syncState.syncError = "";
 
   // Generate a random 6-digit room code
   const code = Math.floor(100000 + Math.random() * 900000).toString();
-  roomCode.set(code);
+  syncState.roomCode = code;
 
   const peerId = `vibedeck-room-${code}`;
 
@@ -60,17 +62,17 @@ export function startHosting(): void {
     });
   } catch (e: any) {
     console.error(e);
-    syncState.set("error");
-    syncError.set("Could not initialize peer connection.");
+    syncState.connectionState = "error";
+    syncState.syncError = "Could not initialize peer connection.";
     return;
   }
 
   peer.on("open", () => {
-    syncState.set("connected");
+    syncState.connectionState = "connected";
     showToast(`Table created! Code: ${code}`, "success");
 
     // Push the current card if one is already drawn
-    const card = get(currentCard);
+    const card = appState.currentCard;
     if (card) {
       pushCard(card);
     }
@@ -87,15 +89,15 @@ export function startHosting(): void {
     conn.on("data", (data: any) => {
       if (data && typeof data === "object") {
         if (data.type === "JOIN_NAME") {
-          connectedPlayers.update((list) => {
-            const filtered = list.filter((p) => p.peerId !== conn.peer);
-            return [...filtered, { peerId: conn.peer, name: data.name, isVirtual: false }];
-          });
-          clientCount.set(get(connectedPlayers).length);
+          syncState.connectedPlayers = [
+            ...syncState.connectedPlayers.filter((p) => p.peerId !== conn.peer),
+            { peerId: conn.peer, name: data.name, isVirtual: false },
+          ];
+          syncState.clientCount = syncState.connectedPlayers.length;
           showToast(`${data.name} joined the table`, "success");
 
           // Sync updated players list to all players
-          const currentPlayers = get(connectedPlayers);
+          const currentPlayers = syncState.connectedPlayers;
           activeConnections.forEach((c) => {
             if (c.open) {
               c.send({
@@ -106,7 +108,7 @@ export function startHosting(): void {
           });
 
           // Sync last globally broadcasted card immediately to the new player
-          const card = get(globalBroadcastCard);
+          const card = syncState.globalBroadcastCard;
           if (card) {
             conn.send({
               type: "CARD_PUSH",
@@ -117,13 +119,13 @@ export function startHosting(): void {
                 text: card.text,
                 pageNum: card.pageNum,
               },
-              cardFlipped: get(globalBroadcastCardFlipped),
+              cardFlipped: syncState.globalBroadcastCardFlipped,
               isPrivate: false,
             });
           }
 
           // Sync current discard pile immediately to the new player
-          const dCards = get(discardPile);
+          const dCards = syncState.discardPile;
           if (dCards.length > 0) {
             conn.send({
               type: "DISCARD_PILE_SYNC",
@@ -131,18 +133,17 @@ export function startHosting(): void {
             });
           }
         } else if (data.type === "TRADE_REQUEST") {
-          const sender = get(connectedPlayers).find((p) => p.peerId === conn.peer);
+          const sender = syncState.connectedPlayers.find((p) => p.peerId === conn.peer);
           const senderName = sender ? sender.name : "A player";
-          const recipient = get(connectedPlayers).find((p) => p.peerId === data.targetPeerId);
+          const recipient = syncState.connectedPlayers.find((p) => p.peerId === data.targetPeerId);
           const recipientName = recipient ? recipient.name : "another player";
 
           // Broker virtual player trade
           if (recipient && recipient.isVirtual) {
-            virtualPlayerHands.update((hands) => {
-              const hand = hands[data.targetPeerId] || [];
-              if (hand.some((c) => c.id === data.card.id)) return hands;
-              return { ...hands, [data.targetPeerId]: [...hand, data.card] };
-            });
+            const hand = syncState.virtualPlayerHands[data.targetPeerId] || [];
+            if (!hand.some((c) => c.id === data.card.id)) {
+              syncState.virtualPlayerHands[data.targetPeerId] = [...hand, data.card];
+            }
 
             conn.send({
               type: "TRADE_CONFIRMED",
@@ -192,11 +193,11 @@ export function startHosting(): void {
           });
           showToast(announcementText, "success");
         } else if (data.type === "DISCARD_EVENT") {
-          const sender = get(connectedPlayers).find((p) => p.peerId === conn.peer);
+          const sender = syncState.connectedPlayers.find((p) => p.peerId === conn.peer);
           const senderName = sender ? sender.name : "A player";
 
-          discardPile.update((list) => [...list, data.card]);
-          const currentList = get(discardPile);
+          syncState.discardPile.push(data.card);
+          const currentList = syncState.discardPile;
 
           activeConnections.forEach((c) => {
             if (c.open) {
@@ -218,16 +219,16 @@ export function startHosting(): void {
           });
           showToast(text);
         } else if (data.type === "RECALL_EVENT") {
-          const sender = get(connectedPlayers).find((p) => p.peerId === conn.peer);
+          const sender = syncState.connectedPlayers.find((p) => p.peerId === conn.peer);
           const senderName = sender ? sender.name : "A player";
 
           const cardId = data.cardId;
-          const currentList = get(discardPile);
+          const currentList = syncState.discardPile;
           const card = currentList.find((c) => c.id === cardId);
 
           if (card) {
-            discardPile.update((list) => list.filter((c) => c.id !== cardId));
-            const updatedList = get(discardPile);
+            syncState.discardPile = syncState.discardPile.filter((c) => c.id !== cardId);
+            const updatedList = syncState.discardPile;
 
             activeConnections.forEach((c) => {
               if (c.open) {
@@ -261,16 +262,16 @@ export function startHosting(): void {
     });
 
     conn.on("close", () => {
-      const closingPlayer = get(connectedPlayers).find((p) => p.peerId === conn.peer);
+      const closingPlayer = syncState.connectedPlayers.find((p) => p.peerId === conn.peer);
       const name = closingPlayer ? closingPlayer.name : "A player";
 
       activeConnections = activeConnections.filter((c) => c !== conn);
-      connectedPlayers.update((list) => list.filter((p) => p.peerId !== conn.peer));
-      clientCount.set(get(connectedPlayers).length);
+      syncState.connectedPlayers = syncState.connectedPlayers.filter((p) => p.peerId !== conn.peer);
+      syncState.clientCount = syncState.connectedPlayers.length;
       showToast(`${name} left the table`);
 
       // Sync updated players list to all players
-      const currentPlayers = get(connectedPlayers);
+      const currentPlayers = syncState.connectedPlayers;
       activeConnections.forEach((c) => {
         if (c.open) {
           c.send({
@@ -284,11 +285,11 @@ export function startHosting(): void {
     conn.on("error", (err: any) => {
       console.error("Connection error:", err);
       activeConnections = activeConnections.filter((c) => c !== conn);
-      connectedPlayers.update((list) => list.filter((p) => p.peerId !== conn.peer));
-      clientCount.set(get(connectedPlayers).length);
+      syncState.connectedPlayers = syncState.connectedPlayers.filter((p) => p.peerId !== conn.peer);
+      syncState.clientCount = syncState.connectedPlayers.length;
 
       // Sync updated players list to all players
-      const currentPlayers = get(connectedPlayers);
+      const currentPlayers = syncState.connectedPlayers;
       activeConnections.forEach((c) => {
         if (c.open) {
           c.send({
@@ -306,8 +307,8 @@ export function startHosting(): void {
       // Retry once with a new code
       startHosting();
     } else {
-      syncState.set("error");
-      syncError.set(`Connection error: ${err.message || err.type}`);
+      syncState.connectionState = "error";
+      syncState.syncError = `Connection error: ${err.message || err.type}`;
       showToast("Table connection error", "error");
     }
   });
@@ -321,10 +322,10 @@ export function joinTable(code: string, name?: string): void {
 
   disconnect();
 
-  syncState.set("connecting");
-  syncRole.set("client");
-  roomCode.set(code);
-  syncError.set("");
+  syncState.connectionState = "connecting";
+  syncState.role = "client";
+  syncState.roomCode = code;
+  syncState.syncError = "";
 
   try {
     peer = new Peer({
@@ -332,8 +333,8 @@ export function joinTable(code: string, name?: string): void {
     });
   } catch (e: any) {
     console.error(e);
-    syncState.set("error");
-    syncError.set("Could not initialize peer connection.");
+    syncState.connectionState = "error";
+    syncState.syncError = "Could not initialize peer connection.";
     return;
   }
 
@@ -344,14 +345,14 @@ export function joinTable(code: string, name?: string): void {
     });
 
     conn.on("open", () => {
-      syncState.set("connected");
+      syncState.connectionState = "connected";
       showToast("Connected to GM's table!", "success");
       activeConnections = [conn];
 
       // Send name to GM immediately
       conn.send({
         type: "JOIN_NAME",
-        name: name || get(playerName),
+        name: name || syncState.playerName,
       });
     });
 
@@ -361,12 +362,9 @@ export function joinTable(code: string, name?: string): void {
           if (data.card) {
             if (data.isPrivate) {
               // Add to player hand
-              receivedCards.update((list) => {
-                if (list.some((c) => c.id === data.card.id)) {
-                  return list;
-                }
-                return [...list, data.card];
-              });
+              if (!syncState.receivedCards.some((c) => c.id === data.card.id)) {
+                syncState.receivedCards.push(data.card);
+              }
 
               if (data.tradeFrom) {
                 showToast(`You received a card from ${data.tradeFrom}!`, "success");
@@ -375,96 +373,96 @@ export function joinTable(code: string, name?: string): void {
               }
 
               // Focus on screen only if currently viewing nothing
-              if (get(sharedCard) === null) {
-                sharedCard.set(data.card);
-                sharedCardFlipped.set(data.cardFlipped || false);
-                sharedCardShowText.set(false);
+              if (syncState.sharedCard === null) {
+                syncState.sharedCard = data.card;
+                syncState.sharedCardFlipped = data.cardFlipped || false;
+                syncState.sharedCardShowText = false;
               }
             } else {
               // Update global broadcast card state
-              globalBroadcastCard.set(data.card);
-              globalBroadcastCardFlipped.set(data.cardFlipped || false);
+              syncState.globalBroadcastCard = data.card;
+              syncState.globalBroadcastCardFlipped = data.cardFlipped || false;
 
               // Auto-focus on public cards
-              sharedCard.set(data.card);
-              sharedCardFlipped.set(data.cardFlipped || false);
-              sharedCardShowText.set(false);
+              syncState.sharedCard = data.card;
+              syncState.sharedCardFlipped = data.cardFlipped || false;
+              syncState.sharedCardShowText = false;
               showToast("GM shared a card with everyone!", "success");
             }
           } else {
             // Null card is equivalent to clear
-            globalBroadcastCard.set(null);
-            globalBroadcastCardFlipped.set(false);
-            sharedCard.set(null);
-            sharedCardFlipped.set(false);
-            sharedCardShowText.set(false);
+            syncState.globalBroadcastCard = null;
+            syncState.globalBroadcastCardFlipped = false;
+            syncState.sharedCard = null;
+            syncState.sharedCardFlipped = false;
+            syncState.sharedCardShowText = false;
           }
         } else if (data.type === "CARD_FLIP") {
           // Keep background state of global card correct
-          globalBroadcastCardFlipped.set(data.cardFlipped);
+          syncState.globalBroadcastCardFlipped = data.cardFlipped;
 
           // Only flip player's active screen if they are focusing the global card
-          const currentFocused = get(sharedCard);
-          const globalCard = get(globalBroadcastCard);
+          const currentFocused = syncState.sharedCard;
+          const globalCard = syncState.globalBroadcastCard;
           if (currentFocused && globalCard && currentFocused.id === globalCard.id) {
-            sharedCardFlipped.set(data.cardFlipped);
+            syncState.sharedCardFlipped = data.cardFlipped;
           }
         } else if (data.type === "CARD_CLEAR") {
-          const currentFocused = get(sharedCard);
-          const oldGlobal = get(globalBroadcastCard);
+          const currentFocused = syncState.sharedCard;
+          const oldGlobal = syncState.globalBroadcastCard;
 
-          globalBroadcastCard.set(null);
-          globalBroadcastCardFlipped.set(false);
+          syncState.globalBroadcastCard = null;
+          syncState.globalBroadcastCardFlipped = false;
 
           // Clear player screen only if they were focusing the global card
           if (!currentFocused || (oldGlobal && currentFocused.id === oldGlobal.id)) {
-            sharedCard.set(null);
-            sharedCardFlipped.set(false);
-            sharedCardShowText.set(false);
+            syncState.sharedCard = null;
+            syncState.sharedCardFlipped = false;
+            syncState.sharedCardShowText = false;
           }
         } else if (data.type === "TRADE_CONFIRMED") {
-          receivedCards.update((list) => list.filter((c) => c.id !== data.cardId));
-          const currentFocused = get(sharedCard);
+          syncState.receivedCards = syncState.receivedCards.filter((c) => c.id !== data.cardId);
+          const currentFocused = syncState.sharedCard;
           if (currentFocused && currentFocused.id === data.cardId) {
-            sharedCard.set(get(globalBroadcastCard));
-            sharedCardFlipped.set(get(globalBroadcastCardFlipped));
-            sharedCardShowText.set(false);
+            syncState.sharedCard = syncState.globalBroadcastCard;
+            syncState.sharedCardFlipped = syncState.globalBroadcastCardFlipped;
+            syncState.sharedCardShowText = false;
           }
           showToast(`Passed card to ${data.targetName}`, "success");
         } else if (data.type === "TRADE_ANNOUNCEMENT") {
           showToast(data.text);
         } else if (data.type === "DISCARD_PILE_SYNC") {
-          discardPile.set(data.cards);
+          syncState.discardPile = data.cards;
         } else if (data.type === "PLAYERS_SYNC") {
           const myId = peer ? peer.id : null;
           const filteredPlayers = data.players.filter((p: Player) => p.peerId !== myId);
-          connectedPlayers.set(filteredPlayers);
-          clientCount.set(data.players.length);
+          syncState.connectedPlayers = filteredPlayers;
+          syncState.clientCount = data.players.length;
         }
       }
     });
 
     conn.on("close", () => {
-      syncState.set("disconnected");
+      syncState.connectionState = "disconnected";
       showToast("Disconnected from GM's table", "error");
       disconnect();
     });
 
     conn.on("error", (err: any) => {
       console.error("Connection error:", err);
-      syncState.set("error");
-      syncError.set("Lost connection to GM.");
+      syncState.connectionState = "error";
+      syncState.syncError = "Lost connection to GM.";
       showToast("Connection to GM failed", "error");
     });
   });
 
   peer.on("error", (err: any) => {
     console.error("Peer error:", err);
-    syncState.set("error");
+    syncState.connectionState = "error";
     if (err.type === "peer-unavailable") {
-      syncError.set(`Table ${code} not found. Verify room code.`);
+      syncState.syncError = `Table ${code} not found. Verify room code.`;
     } else {
-      syncError.set(`Connection error: ${err.message || err.type}`);
+      syncState.syncError = `Connection error: ${err.message || err.type}`;
     }
     showToast("Failed to join table", "error");
   });
@@ -487,27 +485,27 @@ export function disconnect(): void {
     peer = null;
   }
 
-  syncRole.set("none");
-  roomCode.set("");
-  syncState.set("disconnected");
-  clientCount.set(0);
-  sharedCard.set(null);
-  sharedCardFlipped.set(false);
-  sharedCardShowText.set(false);
-  syncError.set("");
-  connectedPlayers.set([]);
-  receivedCards.set([]);
-  discardPile.set([]);
-  virtualPlayerHands.set({});
+  syncState.role = "none";
+  syncState.roomCode = "";
+  syncState.connectionState = "disconnected";
+  syncState.clientCount = 0;
+  syncState.sharedCard = null;
+  syncState.sharedCardFlipped = false;
+  syncState.sharedCardShowText = false;
+  syncState.syncError = "";
+  syncState.connectedPlayers = [];
+  syncState.receivedCards = [];
+  syncState.discardPile = [];
+  syncState.virtualPlayerHands = {};
 }
 
 export function pushCard(card: Card | null): void {
-  const role = get(syncRole);
+  const role = syncState.role;
   if (role !== "host") return;
 
   // Track globally broadcasted card on the host
-  globalBroadcastCard.set(card);
-  globalBroadcastCardFlipped.set(get(cardFlipped));
+  syncState.globalBroadcastCard = card;
+  syncState.globalBroadcastCardFlipped = appState.cardFlipped;
 
   const payload = {
     type: "CARD_PUSH",
@@ -521,7 +519,7 @@ export function pushCard(card: Card | null): void {
           annotations: card.annotations,
         }
       : null,
-    cardFlipped: get(cardFlipped),
+    cardFlipped: appState.cardFlipped,
     isPrivate: false,
   };
 
@@ -533,18 +531,17 @@ export function pushCard(card: Card | null): void {
 }
 
 export function sendCardTo(peerId: string, card: Card | null): void {
-  const role = get(syncRole);
+  const role = syncState.role;
   if (role !== "host" || !card) return;
 
-  const player = get(connectedPlayers).find((p) => p.peerId === peerId);
+  const player = syncState.connectedPlayers.find((p) => p.peerId === peerId);
   if (!player) return;
 
   if (player.isVirtual) {
-    virtualPlayerHands.update((hands) => {
-      const hand = hands[peerId] || [];
-      if (hand.some((c) => c.id === card.id)) return hands;
-      return { ...hands, [peerId]: [...hand, card] };
-    });
+    const hand = syncState.virtualPlayerHands[peerId] || [];
+    if (!hand.some((c) => c.id === card.id)) {
+      syncState.virtualPlayerHands[peerId] = [...hand, card];
+    }
 
     const text = `👤 GM sent a card privately to virtual player ${player.name}`;
     activeConnections.forEach((c) => {
@@ -582,14 +579,14 @@ export function sendCardTo(peerId: string, card: Card | null): void {
 }
 
 export function pushFlip(isFlipped: boolean): void {
-  const role = get(syncRole);
+  const role = syncState.role;
   if (role !== "host") return;
 
   // Only push flip if the GM is currently focusing the active table card
-  const current = get(currentCard);
-  const broadcasted = get(globalBroadcastCard);
+  const current = appState.currentCard;
+  const broadcasted = syncState.globalBroadcastCard;
   if (current && broadcasted && current.id === broadcasted.id) {
-    globalBroadcastCardFlipped.set(isFlipped);
+    syncState.globalBroadcastCardFlipped = isFlipped;
     activeConnections.forEach((conn) => {
       if (conn.open) {
         conn.send({
@@ -602,11 +599,11 @@ export function pushFlip(isFlipped: boolean): void {
 }
 
 export function pushClear(): void {
-  const role = get(syncRole);
+  const role = syncState.role;
   if (role !== "host") return;
 
-  globalBroadcastCard.set(null);
-  globalBroadcastCardFlipped.set(false);
+  syncState.globalBroadcastCard = null;
+  syncState.globalBroadcastCardFlipped = false;
 
   activeConnections.forEach((conn) => {
     if (conn.open) {
@@ -618,16 +615,16 @@ export function pushClear(): void {
 }
 
 export function discardTableCard(): void {
-  const role = get(syncRole);
+  const role = syncState.role;
   if (role !== "host") return;
 
-  const card = get(globalBroadcastCard);
+  const card = syncState.globalBroadcastCard;
   if (card) {
-    discardPile.update((list) => [...list, card]);
-    const currentList = get(discardPile);
+    syncState.discardPile.push(card);
+    const currentList = syncState.discardPile;
 
-    globalBroadcastCard.set(null);
-    globalBroadcastCardFlipped.set(false);
+    syncState.globalBroadcastCard = null;
+    syncState.globalBroadcastCardFlipped = false;
 
     activeConnections.forEach((c) => {
       if (c.open) {
@@ -646,15 +643,15 @@ export function discardTableCard(): void {
 }
 
 export function recallCardToGM(cardId: string): void {
-  const role = get(syncRole);
+  const role = syncState.role;
   if (role !== "host") return;
 
-  const currentList = get(discardPile);
+  const currentList = syncState.discardPile;
   const card = currentList.find((c) => c.id === cardId);
 
   if (card) {
-    discardPile.update((list) => list.filter((c) => c.id !== cardId));
-    const updatedList = get(discardPile);
+    syncState.discardPile = syncState.discardPile.filter((c) => c.id !== cardId);
+    const updatedList = syncState.discardPile;
 
     activeConnections.forEach((c) => {
       if (c.open) {
@@ -665,15 +662,15 @@ export function recallCardToGM(cardId: string): void {
       }
     });
 
-    currentCard.set(card);
-    cardFlipped.set(false);
+    appState.currentCard = card;
+    appState.cardFlipped = false;
     showToast(`Recalled card to GM screen`, "success");
   }
 }
 
 export function discardCardToPile(card: Card | null): void {
   if (!card) return;
-  const role = get(syncRole);
+  const role = syncState.role;
   if (role === "client") {
     const conn = activeConnections[0];
     if (conn && conn.open) {
@@ -682,20 +679,20 @@ export function discardCardToPile(card: Card | null): void {
         card: card,
       });
     }
-    receivedCards.update((list) => list.filter((c) => c.id !== card.id));
-    const currentFocused = get(sharedCard);
+    syncState.receivedCards = syncState.receivedCards.filter((c) => c.id !== card.id);
+    const currentFocused = syncState.sharedCard;
     if (currentFocused && currentFocused.id === card.id) {
-      sharedCard.set(get(globalBroadcastCard));
-      sharedCardFlipped.set(get(globalBroadcastCardFlipped));
-      sharedCardShowText.set(false);
+      syncState.sharedCard = syncState.globalBroadcastCard;
+      syncState.sharedCardFlipped = syncState.globalBroadcastCardFlipped;
+      syncState.sharedCardShowText = false;
     }
   } else if (role === "host") {
-    const broadcasted = get(globalBroadcastCard);
+    const broadcasted = syncState.globalBroadcastCard;
     if (broadcasted && broadcasted.id === card.id) {
       discardTableCard();
     } else {
-      discardPile.update((list) => [...list, card]);
-      const currentList = get(discardPile);
+      syncState.discardPile.push(card);
+      const currentList = syncState.discardPile;
       activeConnections.forEach((c) => {
         if (c.open) {
           c.send({
@@ -710,7 +707,7 @@ export function discardCardToPile(card: Card | null): void {
 }
 
 export function requestRecall(cardId: string): void {
-  const role = get(syncRole);
+  const role = syncState.role;
   if (role === "client") {
     const conn = activeConnections[0];
     if (conn && conn.open) {
@@ -726,7 +723,7 @@ export function requestRecall(cardId: string): void {
 
 export function passCardTo(targetPeerId: string, card: Card | null): void {
   if (!card || !targetPeerId) return;
-  const role = get(syncRole);
+  const role = syncState.role;
   if (role === "client") {
     const conn = activeConnections[0];
     if (conn && conn.open) {
@@ -740,22 +737,18 @@ export function passCardTo(targetPeerId: string, card: Card | null): void {
 }
 
 export function addVirtualPlayer(name: string): void {
-  const role = get(syncRole);
+  const role = syncState.role;
   if (role !== "host") return;
 
   const peerId = `virtual-${Math.random().toString(36).substring(2, 9)}`;
-  connectedPlayers.update((list) => {
-    return [...list, { peerId, name, isVirtual: true }];
-  });
-  clientCount.set(get(connectedPlayers).length);
+  syncState.connectedPlayers.push({ peerId, name, isVirtual: true });
+  syncState.clientCount = syncState.connectedPlayers.length;
 
   // Initialize empty hand for virtual player
-  virtualPlayerHands.update((hands) => {
-    return { ...hands, [peerId]: [] };
-  });
+  syncState.virtualPlayerHands[peerId] = [];
 
   // Sync updated players list to all peered players
-  const currentPlayers = get(connectedPlayers);
+  const currentPlayers = syncState.connectedPlayers;
   activeConnections.forEach((c) => {
     if (c.open) {
       c.send({
@@ -769,23 +762,19 @@ export function addVirtualPlayer(name: string): void {
 }
 
 export function removeVirtualPlayer(peerId: string): void {
-  const role = get(syncRole);
+  const role = syncState.role;
   if (role !== "host") return;
 
-  const player = get(connectedPlayers).find((p) => p.peerId === peerId);
+  const player = syncState.connectedPlayers.find((p) => p.peerId === peerId);
   const name = player ? player.name : "Virtual Player";
 
-  connectedPlayers.update((list) => list.filter((p) => p.peerId !== peerId));
-  clientCount.set(get(connectedPlayers).length);
+  syncState.connectedPlayers = syncState.connectedPlayers.filter((p) => p.peerId !== peerId);
+  syncState.clientCount = syncState.connectedPlayers.length;
 
-  virtualPlayerHands.update((hands) => {
-    const updated = { ...hands };
-    delete updated[peerId];
-    return updated;
-  });
+  delete syncState.virtualPlayerHands[peerId];
 
   // Sync updated players list to all peered players
-  const currentPlayers = get(connectedPlayers);
+  const currentPlayers = syncState.connectedPlayers;
   activeConnections.forEach((c) => {
     if (c.open) {
       c.send({
@@ -799,17 +788,15 @@ export function removeVirtualPlayer(peerId: string): void {
 }
 
 export function discardVirtualCard(peerId: string, card: Card): void {
-  const role = get(syncRole);
+  const role = syncState.role;
   if (role !== "host") return;
 
-  virtualPlayerHands.update((hands) => {
-    const hand = hands[peerId] || [];
-    return { ...hands, [peerId]: hand.filter((c) => c.id !== card.id) };
-  });
+  const hand = syncState.virtualPlayerHands[peerId] || [];
+  syncState.virtualPlayerHands[peerId] = hand.filter((c) => c.id !== card.id);
 
   // Put card in shared discard pile
-  discardPile.update((list) => [...list, card]);
-  const currentList = get(discardPile);
+  syncState.discardPile.push(card);
+  const currentList = syncState.discardPile;
 
   // Sync updated discard pile to all peered players
   activeConnections.forEach((c) => {
@@ -822,7 +809,7 @@ export function discardVirtualCard(peerId: string, card: Card): void {
   });
 
   // Announce discard to all players
-  const player = get(connectedPlayers).find((p) => p.peerId === peerId);
+  const player = syncState.connectedPlayers.find((p) => p.peerId === peerId);
   const playerNameText = player ? player.name : "Virtual player";
   const announcementText = `🗑️ Virtual player ${playerNameText} discarded a card to the discard pile`;
   activeConnections.forEach((c) => {

@@ -1,37 +1,37 @@
 <script lang="ts">
-  import { decks, currentDeckId, currentCard, drawState, history, cardFlipped, showText, lightboxSrc, STORAGE_KEYS, type Card } from '../js/state';
+  import { appState, STORAGE_KEYS, type Card } from '../js/state.svelte';
   import { iGet, iPut, iIdx } from '../js/db';
   import { shuffle, fmtTime } from '../js/utils';
-  import { showToast } from '../js/toastStore';
-  import { syncRole, roomCode, clientCount, connectedPlayers, sendCardTo, pushCard, pushFlip, pushClear, autoShareMode, globalBroadcastCard } from '../js/sync';
+  import { showToast } from '../js/toastStore.svelte';
+  import { syncState, sendCardTo, pushCard, pushFlip, pushClear } from '../js/sync.svelte';
 
-  let animateReveal = false;
+  let animateReveal = $state(false);
 
-  $: {
-    if ($syncRole === 'host' && $autoShareMode !== 'global' && $autoShareMode !== 'private' && !$connectedPlayers.some(p => p.peerId === $autoShareMode)) {
-      autoShareMode.set('private');
+  $effect(() => {
+    if (syncState.role === 'host' && syncState.autoShareMode !== 'global' && syncState.autoShareMode !== 'private' && !syncState.connectedPlayers.some(p => p.peerId === syncState.autoShareMode)) {
+      syncState.autoShareMode = 'private';
     }
-  }
+  });
 
-  $: ds = $currentDeckId ? $drawState[$currentDeckId] : null;
-  $: deck = $currentDeckId ? $decks.find(d => d.id === $currentDeckId) : null;
-  $: progressPercent = deck && ds && deck.cardCount > 0 ? (ds.drawn.length / deck.cardCount * 100) : 0;
-  $: hasBoth = $currentCard && $currentCard.front && $currentCard.back;
-  $: lastDrawnTime = (() => {
-    const deckId = $currentDeckId;
+  const ds = $derived(appState.currentDeckId ? appState.drawState[appState.currentDeckId] : null);
+  const deck = $derived(appState.currentDeckId ? appState.decks.find(d => d.id === appState.currentDeckId) : null);
+  const progressPercent = $derived(deck && ds && deck.cardCount > 0 ? (ds.drawn.length / deck.cardCount * 100) : 0);
+  const hasBoth = $derived(appState.currentCard && appState.currentCard.front && appState.currentCard.back);
+  const lastDrawnTime = $derived((() => {
+    const deckId = appState.currentDeckId;
     if (!deckId) return '';
-    const h = $history[deckId];
+    const h = appState.history[deckId];
     if (h && h.length) {
       return fmtTime(h[0].drawnAt);
     }
     return '';
-  })();
+  })());
 
-  $: {
-    if ($currentDeckId) {
-      loadDeckState($currentDeckId);
+  $effect(() => {
+    if (appState.currentDeckId) {
+      loadDeckState(appState.currentDeckId);
     }
-  }
+  });
 
   async function loadDeckState(deckId: string) {
     if (!deckId) return;
@@ -47,34 +47,28 @@
       await iPut('drawState', dsVal);
     }
 
-    drawState.update(store => {
-      store[deckId] = dsVal as any;
-      return store;
-    });
+    appState.drawState[deckId] = dsVal as any;
 
     const hist = await iIdx('history', 'deckId', deckId);
     hist.sort((a: any, b: any) => b.drawnAt - a.drawnAt);
-    history.update(store => {
-      store[deckId] = hist as any[];
-      return store;
-    });
+    appState.history[deckId] = hist as any[];
 
     localStorage.setItem(STORAGE_KEYS.lastDeckId, deckId);
   }
 
   function onDeckChange() {
-    currentCard.set(null);
-    cardFlipped.set(false);
-    showText.set(false);
-    if ($syncRole === 'host') {
+    appState.currentCard = null;
+    appState.cardFlipped = false;
+    appState.showText = false;
+    if (syncState.role === 'host') {
       pushClear();
     }
   }
 
   async function drawCard() {
-    const deckId = $currentDeckId;
+    const deckId = appState.currentDeckId;
     if (!deckId) return;
-    const dsVal = $drawState[deckId];
+    const dsVal = appState.drawState[deckId];
     if (!dsVal || !dsVal.remaining.length) {
       showToast('Deck exhausted — reshuffle to continue', 'error');
       return;
@@ -90,23 +84,19 @@
     };
 
     await iPut('drawState', updatedDs);
-
-    drawState.update(store => {
-      store[deckId] = updatedDs;
-      return store;
-    });
+    appState.drawState[deckId] = updatedDs;
 
     const card = await iGet<Card>('cards', cid);
     if (!card) return;
-    currentCard.set(card);
-    cardFlipped.set(false);
-    showText.set(false);
+    appState.currentCard = card;
+    appState.cardFlipped = false;
+    appState.showText = false;
 
-    if ($syncRole === 'host') {
-      if ($autoShareMode === 'global') {
+    if (syncState.role === 'host') {
+      if (syncState.autoShareMode === 'global') {
         pushCard(card);
-      } else if ($autoShareMode !== 'private') {
-        sendCardTo($autoShareMode, card);
+      } else if (syncState.autoShareMode !== 'private') {
+        sendCardTo(syncState.autoShareMode, card);
       }
     }
 
@@ -117,13 +107,8 @@
     };
     await iPut('history', entry);
 
-    history.update(store => {
-      const h = store[deckId] || [];
-      return {
-        ...store,
-        [deckId]: [entry, ...h]
-      };
-    });
+    const h = appState.history[deckId] || [];
+    appState.history[deckId] = [entry, ...h];
 
     animateReveal = true;
     setTimeout(() => {
@@ -132,7 +117,7 @@
   }
 
   async function reshuffleDeck() {
-    const deckId = $currentDeckId;
+    const deckId = appState.currentDeckId;
     if (!deckId) return;
     const cards = await iIdx<Card>('cards', 'deckId', deckId);
     const updatedDs = {
@@ -142,38 +127,31 @@
     };
 
     await iPut('drawState', updatedDs);
+    appState.drawState[deckId] = updatedDs;
 
-    drawState.update(store => {
-      store[deckId] = updatedDs;
-      return store;
-    });
-
-    currentCard.set(null);
-    cardFlipped.set(false);
-    showText.set(false);
+    appState.currentCard = null;
+    appState.cardFlipped = false;
+    appState.showText = false;
     showToast('Deck reshuffled');
-    if ($syncRole === 'host') {
+    if (syncState.role === 'host') {
       pushClear();
     }
   }
 
   function handleCardClick() {
     if (!hasBoth) return;
-    cardFlipped.update(v => {
-      const next = !v;
-      if ($syncRole === 'host') {
-        pushFlip(next);
-      }
-      return next;
-    });
+    appState.cardFlipped = !appState.cardFlipped;
+    if (syncState.role === 'host') {
+      pushFlip(appState.cardFlipped);
+    }
   }
 </script>
 
 <div id="view-draw" class="view active">
   <div class="deck-selector-bar">
     <span class="deck-label">Deck</span>
-    <select class="deck-select" bind:value={$currentDeckId} on:change={onDeckChange}>
-      {#each $decks as d (d.id)}
+    <select class="deck-select" bind:value={appState.currentDeckId} onchange={onDeckChange}>
+      {#each appState.decks as d (d.id)}
         <option value={d.id}>{d.name}</option>
       {:else}
         <option value="">— No decks imported —</option>
@@ -182,9 +160,9 @@
     <span class="deck-count-badge">{(ds ? ds.remaining.length : 0)} left</span>
   </div>
 
-  {#if $syncRole === 'host'}
+  {#if syncState.role === 'host'}
     <div style="text-align: center; font-size: 0.78rem; color: var(--green); margin-bottom: 16px; font-family: 'Cinzel', serif; letter-spacing: 0.05em; text-shadow: 0 0 8px rgba(74, 144, 96, 0.3);">
-      📡 Broadcasting live to {$clientCount} player{$clientCount === 1 ? '' : 's'} (Code: {$roomCode})
+      📡 Broadcasting live to {syncState.clientCount} player{syncState.clientCount === 1 ? '' : 's'} (Code: {syncState.roomCode})
     </div>
   {/if}
 
@@ -204,14 +182,14 @@
     <div
       class="card-frame"
       class:flippable={hasBoth}
-      class:flipped={$cardFlipped}
+      class:flipped={appState.cardFlipped}
       class:revealing={animateReveal}
       id="card-frame"
-      on:click={handleCardClick}
+      onclick={handleCardClick}
     >
       <div class="card-inner">
         <div class="card-face front" id="card-face-front">
-          {#if !$currentCard}
+          {#if !appState.currentCard}
             <div class="card-empty">
               <div class="card-empty-symbol">✦</div>
               <div class="card-empty-text">No card drawn</div>
@@ -219,21 +197,21 @@
           {:else}
             <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
             <img
-              src={$currentCard.front}
+              src={appState.currentCard.front}
               alt=""
-              on:click={(e) => {
+              onclick={(e) => {
                 if (!hasBoth) {
                   e.stopPropagation();
-                  lightboxSrc.set($currentCard.front);
+                  appState.lightboxSrc = appState.currentCard!.front;
                 }
               }}
             />
           {/if}
         </div>
         <div class="card-face back" id="card-face-back">
-          {#if $currentCard && hasBoth}
+          {#if appState.currentCard && hasBoth}
             <img
-              src={$currentCard.back}
+              src={appState.currentCard.back}
               alt=""
             />
           {/if}
@@ -241,9 +219,9 @@
       </div>
     </div>
 
-    {#if $currentCard}
+    {#if appState.currentCard}
       <div class="card-meta">
-        <span class="card-num">Page {$currentCard.pageNum}</span>
+        <span class="card-num">Page {appState.currentCard.pageNum}</span>
         {#if lastDrawnTime}
           <span class="card-drawn-time">{lastDrawnTime}</span>
         {/if}
@@ -253,8 +231,8 @@
         <div class="flip-hint">Tap card to flip</div>
       {/if}
 
-      {#if $showText && $currentCard.text}
-        <div class="card-text-panel visible">{$currentCard.text}</div>
+      {#if appState.showText && appState.currentCard.text}
+        <div class="card-text-panel visible">{appState.currentCard.text}</div>
       {/if}
     {/if}
   </div>
@@ -264,8 +242,8 @@
       <button
         class="btn btn-primary"
         id="draw-btn"
-        on:click={drawCard}
-        disabled={!$currentDeckId || !ds || !ds.remaining.length}
+        onclick={drawCard}
+        disabled={!appState.currentDeckId || !ds || !ds.remaining.length}
       >
         ✦ Draw Card
       </button>
@@ -274,51 +252,51 @@
       <button
         class="btn btn-secondary"
         id="reshuffle-btn"
-        on:click={reshuffleDeck}
-        disabled={!$currentDeckId}
+        onclick={reshuffleDeck}
+        disabled={!appState.currentDeckId}
       >
         ↺ Reshuffle
       </button>
       <button
         class="btn btn-secondary"
         id="zoom-btn"
-        on:click={() => {
-          if ($currentCard) {
-            lightboxSrc.set($cardFlipped ? $currentCard.back : $currentCard.front);
+        onclick={() => {
+          if (appState.currentCard) {
+            appState.lightboxSrc = appState.cardFlipped ? appState.currentCard.back : appState.currentCard.front;
           }
         }}
-        disabled={!$currentCard}
+        disabled={!appState.currentCard}
       >
         🔍 Zoom
       </button>
       <button
         class="btn btn-secondary"
         id="text-btn"
-        on:click={() => showText.update(v => !v)}
-        disabled={!$currentCard}
+        onclick={() => appState.showText = !appState.showText}
+        disabled={!appState.currentCard}
       >
         ≡ Text
       </button>
     </div>
   </div>
 
-  {#if $syncRole === 'host'}
+  {#if syncState.role === 'host'}
     <div class="gm-table-panel">
       <div class="gm-panel-header">
         <h3>GM Table Controls</h3>
-        <span class="gm-connection-status">📡 {$clientCount} player{$clientCount === 1 ? '' : 's'} connected (Code: {$roomCode})</span>
+        <span class="gm-connection-status">📡 {syncState.clientCount} player{syncState.clientCount === 1 ? '' : 's'} connected (Code: {syncState.roomCode})</span>
       </div>
 
       <!-- AUTO-SHARE OPTIONS -->
       <div class="gm-panel-section">
         <label for="auto-share-select" class="gm-panel-label">Auto-Share Mode:</label>
         <div class="gm-select-wrapper">
-          <select id="auto-share-select" class="gm-select" bind:value={$autoShareMode}>
+          <select id="auto-share-select" class="gm-select" bind:value={syncState.autoShareMode}>
             <option value="global">📡 Auto-Share to Table (Global)</option>
             <option value="private">🕵️ Keep Private to GM</option>
-            {#if $connectedPlayers.length > 0}
+            {#if syncState.connectedPlayers.length > 0}
               <optgroup label="Auto-Send to Player Hand">
-                {#each $connectedPlayers as player (player.peerId)}
+                {#each syncState.connectedPlayers as player (player.peerId)}
                   <option value={player.peerId}>👤 Send to {player.name}'s Hand</option>
                 {/each}
               </optgroup>
@@ -328,14 +306,14 @@
       </div>
 
       <!-- MANUAL ACTIONS FOR CURRENT CARD -->
-      {#if $currentCard}
+      {#if appState.currentCard}
         <div class="gm-panel-section">
           <div class="gm-panel-label">Manual Board Actions:</div>
           <div class="gm-action-buttons">
-            <button class="btn btn-primary btn-sm" on:click={() => pushCard($currentCard)}>
+            <button class="btn btn-primary btn-sm" onclick={() => pushCard(appState.currentCard)}>
               📢 Broadcast to Table
             </button>
-            <button class="btn btn-secondary btn-sm btn-clear-table" on:click={pushClear}>
+            <button class="btn btn-secondary btn-sm btn-clear-table" onclick={pushClear}>
               ❌ Clear Table Screen
             </button>
           </div>
@@ -343,17 +321,17 @@
 
         <div class="gm-panel-section">
           <div class="gm-panel-label">Send Privately to Hand:</div>
-          {#if $connectedPlayers.length === 0}
+          {#if syncState.connectedPlayers.length === 0}
             <div class="no-players-hint">No players connected to table</div>
           {:else}
             <div class="distribute-buttons">
-              {#each $connectedPlayers as player (player.peerId)}
-                <button class="btn btn-secondary btn-distribute" on:click={() => sendCardTo(player.peerId, $currentCard)}>
+              {#each syncState.connectedPlayers as player (player.peerId)}
+                <button class="btn btn-secondary btn-distribute" onclick={() => sendCardTo(player.peerId, appState.currentCard)}>
                   👤 {player.name}
                 </button>
               {/each}
-              <button class="btn btn-secondary btn-distribute btn-all-hands" on:click={() => {
-                $connectedPlayers.forEach(p => sendCardTo(p.peerId, $currentCard));
+              <button class="btn btn-secondary btn-distribute btn-all-hands" onclick={() => {
+                syncState.connectedPlayers.forEach(p => sendCardTo(p.peerId, appState.currentCard));
               }}>
                 👥 All Hands
               </button>
@@ -364,6 +342,7 @@
     </div>
   {/if}
 </div>
+
 
 <style>
   .gm-table-panel {

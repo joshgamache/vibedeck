@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { activeTab, importModalOpen, decks, currentDeckId, drawState, STORAGE_KEYS, type Deck, type DrawState } from './js/state';
+  import { appState, STORAGE_KEYS, type Deck, type DrawState } from './js/state.svelte';
   import { initDB, iAll } from './js/db';
 
   import DrawView from './components/DrawView.svelte';
@@ -11,7 +11,7 @@
   import SplitModal from './components/SplitModal.svelte';
   import Lightbox from './components/Lightbox.svelte';
   import ToastContainer from './components/ToastContainer.svelte';
-  import { syncRole, syncState, joinTable } from './js/sync';
+  import { syncState, joinTable } from './js/sync.svelte';
 
   onMount(async () => {
     // Configure PDF.js Global Worker
@@ -24,30 +24,27 @@
 
     // Load initial decks
     const loadedDecks = await iAll<Deck>('decks');
-    decks.set(loadedDecks);
+    appState.decks = loadedDecks;
 
     // Load drawState cache
     const dsList = await iAll<DrawState>('drawState');
-    drawState.update(store => {
-      dsList.forEach(d => {
-        store[d.deckId] = d;
-      });
-      return store;
+    dsList.forEach(d => {
+      appState.drawState[d.deckId] = d;
     });
 
     // Set initial deck selection
     const lastId = localStorage.getItem(STORAGE_KEYS.lastDeckId);
     if (lastId && loadedDecks.some(d => d.id === lastId)) {
-      currentDeckId.set(lastId);
+      appState.currentDeckId = lastId;
     } else if (loadedDecks.length) {
-      currentDeckId.set(loadedDecks[0].id);
+      appState.currentDeckId = loadedDecks[0].id;
     }
 
     // Check for scan-to-join URL query parameter
     const urlParams = new URLSearchParams(window.location.search);
     const tableCode = urlParams.get('table');
     if (tableCode && tableCode.length === 6) {
-      activeTab.set('table');
+      appState.activeTab = 'table';
       joinTable(tableCode);
     }
   });
@@ -56,35 +53,36 @@
 <div id="app">
   <header>
     <div class="logo">The Deck <span>/ MCG Card Reader</span></div>
-    <button class="btn btn-ghost" on:click={() => importModalOpen.set(true)}>+ Import</button>
+    <button class="btn btn-ghost" onclick={() => appState.importModalOpen = true}>+ Import</button>
   </header>
 
   <nav>
-    <button class="nav-tab" class:active={$activeTab === 'draw'} on:click={() => activeTab.set('draw')}>Draw</button>
-    <button class="nav-tab" class:active={$activeTab === 'history'} on:click={() => activeTab.set('history')}>History</button>
-    <button class="nav-tab" class:active={$activeTab === 'library'} on:click={() => activeTab.set('library')}>Library</button>
-    <button class="nav-tab" style="position: relative;" class:active={$activeTab === 'table'} on:click={() => activeTab.set('table')}>
+    <button class="nav-tab" class:active={appState.activeTab === 'draw'} onclick={() => appState.activeTab = 'draw'}>Draw</button>
+    <button class="nav-tab" class:active={appState.activeTab === 'history'} onclick={() => appState.activeTab = 'history'}>History</button>
+    <button class="nav-tab" class:active={appState.activeTab === 'library'} onclick={() => appState.activeTab = 'library'}>Library</button>
+    <button class="nav-tab" style="position: relative;" class:active={appState.activeTab === 'table'} onclick={() => appState.activeTab = 'table'}>
       Table
-      {#if $syncRole === 'host'}
+      {#if syncState.role === 'host'}
         <span class="tab-status-dot host"></span>
-      {:else if $syncRole === 'client' && $syncState === 'connected'}
+      {:else if syncState.role === 'client' && syncState.connectionState === 'connected'}
         <span class="tab-status-dot client"></span>
       {/if}
     </button>
   </nav>
 
   <main>
-    {#if $activeTab === 'draw'}
+    {#if appState.activeTab === 'draw'}
       <DrawView />
-    {:else if $activeTab === 'history'}
+    {:else if appState.activeTab === 'history'}
       <HistoryView />
-    {:else if $activeTab === 'library'}
+    {:else if appState.activeTab === 'library'}
       <LibraryView />
-    {:else if $activeTab === 'table'}
+    {:else if appState.activeTab === 'table'}
       <TableView />
     {/if}
   </main>
 </div>
+
 
 <ImportModal />
 <SplitModal />

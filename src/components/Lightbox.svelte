@@ -1,17 +1,17 @@
 <script lang="ts">
-  import { lightboxSrc } from '../js/state';
+  import { appState } from '../js/state.svelte';
 
   function closeLightbox() {
-    lightboxSrc.set(null);
+    appState.lightboxSrc = null;
   }
 </script>
 
-{#if $lightboxSrc}
+{#if appState.lightboxSrc}
   <!-- svelte-ignore a11y-click-events-have-key-events -->
   <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div class="lightbox open" id="lightbox" on:click={closeLightbox}>
-    <button class="lightbox-close" on:click|stopPropagation={closeLightbox}>✕</button>
+  <div class="lightbox open" id="lightbox" onclick={closeLightbox}>
+    <button class="lightbox-close" onclick={(e) => { e.stopPropagation(); closeLightbox(); }}>✕</button>
     <!-- svelte-ignore a11y-missing-attribute -->
-    <img id="lightbox-img" src={$lightboxSrc} />
+    <img id="lightbox-img" src={appState.lightboxSrc} />
   </div>
 {/if}

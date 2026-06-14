@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { decks, currentDeckId, drawState, history, splitDeckId, lightboxSrc, currentCard, cardFlipped, showText, type Deck, type Card, type DrawState } from '../js/state';
+  import { appState, type Deck, type Card, type DrawState } from '../js/state.svelte';
   import { iIdx, iBulkPut, iPut, iDel, iDelIdx } from '../js/db';
   import { shuffle } from '../js/utils';
-  import { showToast } from '../js/toastStore';
+  import { showToast } from '../js/toastStore.svelte';
 
   interface SplitRange {
     id: string;
@@ -12,23 +12,23 @@
     color: string;
   }
 
-  let splitCards: Card[] = [];
-  let splitRanges: SplitRange[] = [];
-  let splitAfter = 'keep'; // 'keep' or 'delete'
+  let splitCards = $state<Card[]>([]);
+  let splitRanges = $state<SplitRange[]>([]);
+  let splitAfter = $state('keep'); // 'keep' or 'delete'
 
   const RCOLORS = ['#d4943a', '#7aabee', '#9b7fd4', '#5db87f', '#e07070', '#c4a840', '#6bccc4', '#e09060'];
 
-  $: deck = $decks.find(d => d.id === $splitDeckId);
-  $: validated = splitRanges.length > 0 && splitRanges.every(r => r.name.trim() && parseInt(r.start) > 0 && parseInt(r.end) >= parseInt(r.start));
+  const deck = $derived(appState.decks.find(d => d.id === appState.splitDeckId));
+  const validated = $derived(splitRanges.length > 0 && splitRanges.every(r => r.name.trim() && parseInt(r.start) > 0 && parseInt(r.end) >= parseInt(r.start)));
 
   // Load cards when splitDeckId opens
-  $: {
-    if ($splitDeckId) {
-      loadSplitCards($splitDeckId);
+  $effect(() => {
+    if (appState.splitDeckId) {
+      loadSplitCards(appState.splitDeckId);
       splitRanges = [];
       splitAfter = 'keep';
     }
-  }
+  });
 
   async function loadSplitCards(deckId: string): Promise<void> {
     splitCards = await iIdx<Card>('cards', 'deckId', deckId);
@@ -65,7 +65,7 @@
   }
 
   async function confirmSplit(): Promise<void> {
-    const originalDeckId = $splitDeckId;
+    const originalDeckId = appState.splitDeckId;
     if (!originalDeckId) return;
     const newDecks: Deck[] = [];
 
@@ -103,15 +103,9 @@
       await iPut<DrawState>('drawState', dsVal);
 
       // Update global states
-      drawState.update(store => {
-        store[nid] = dsVal;
-        return store;
-      });
-      decks.update(list => [...list, ndeck]);
-      history.update(store => {
-        store[nid] = [];
-        return store;
-      });
+      appState.drawState[nid] = dsVal;
+      appState.decks = [...appState.decks, ndeck];
+      appState.history[nid] = [];
       newDecks.push(ndeck);
     }
 
@@ -121,47 +115,36 @@
       await iDelIdx('history', 'deckId', originalDeckId);
       await iDel('drawState', originalDeckId);
 
-      decks.update(list => list.filter(d => d.id !== originalDeckId));
-      drawState.update(store => {
-        const next = { ...store };
-        delete next[originalDeckId];
-        return next;
-      });
-      history.update(store => {
-        const next = { ...store };
-        delete next[originalDeckId];
-        return next;
-      });
+      appState.decks = appState.decks.filter(d => d.id !== originalDeckId);
+      delete appState.drawState[originalDeckId];
+      delete appState.history[originalDeckId];
 
-      currentDeckId.update(curr => {
-        if (curr === originalDeckId) {
-          const nextId = newDecks.length ? newDecks[0].id : null;
-          currentCard.set(null);
-          cardFlipped.set(false);
-          showText.set(false);
-          return nextId;
-        }
-        return curr;
-      });
+      if (appState.currentDeckId === originalDeckId) {
+        const nextId = newDecks.length ? newDecks[0].id : null;
+        appState.currentCard = null;
+        appState.cardFlipped = false;
+        appState.showText = false;
+        appState.currentDeckId = nextId;
+      }
     } else {
       if (newDecks.length) {
-        currentDeckId.set(newDecks[0].id);
+        appState.currentDeckId = newDecks[0].id;
       }
     }
 
-    splitDeckId.set(null);
+    appState.splitDeckId = null;
     showToast(`Created ${newDecks.length} sub-deck${newDecks.length !== 1 ? 's' : ''}!`, 'success');
   }
 </script>
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <!-- svelte-ignore a11y-no-static-element-interactions -->
-<div class="modal-overlay" class:open={$splitDeckId !== null} on:click|self={() => splitDeckId.set(null)}>
+<div class="modal-overlay" class:open={appState.splitDeckId !== null} onclick={(e) => { if (e.target === e.currentTarget) appState.splitDeckId = null; }}>
   <div class="modal">
     <div class="modal-header">
       <div class="modal-title" style="font-size:.85rem">
         Split: <span style="color:var(--text-dim);font-weight:400">{deck ? deck.name : ''}</span>
-        <button class="modal-close" on:click={() => splitDeckId.set(null)}>✕</button>
+        <button class="modal-close" onclick={() => appState.splitDeckId = null}>✕</button>
       </div>
     </div>
 
@@ -172,7 +155,7 @@
           {@const r = rangeForPage(card.pageNum, splitRanges)}
           <!-- svelte-ignore a11y-click-events-have-key-events -->
           <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
-          <div class="split-card-thumb" style:border-color={r ? r.color : ''} on:click={() => lightboxSrc.set(card.front)}>
+          <div class="split-card-thumb" style:border-color={r ? r.color : ''} onclick={() => appState.lightboxSrc = card.front}>
             <img src={card.front} alt="" loading="lazy" />
             <div class="sc-bar" style:background={r ? r.color : 'transparent'}></div>
             <span class="sc-num">p{card.pageNum}</span>
@@ -188,7 +171,7 @@
       <div class="split-ranges-section">
         <div class="split-section-label">
           Named Ranges
-          <button class="btn btn-ghost" style="padding:5px 10px;font-size:.6rem" on:click={addSplitRange}>
+          <button class="btn btn-ghost" style="padding:5px 10px;font-size:.6rem" onclick={addSplitRange}>
             + Add Range
           </button>
         </div>
@@ -203,7 +186,7 @@
                   placeholder="Name this sub-deck (e.g. Illustrations)"
                   bind:value={r.name}
                 />
-                <button class="range-del-btn" on:click={() => delRange(r.id)}>✕</button>
+                <button class="range-del-btn" onclick={() => delRange(r.id)}>✕</button>
               </div>
               <div class="range-fields">
                 <div class="range-field">
@@ -229,14 +212,14 @@
       <div class="split-after-section">
         <div class="split-section-label" style="margin-bottom:8px">After creating sub-decks…</div>
         <label class="split-option-row">
-          <input type="radio" name="split-after" value="keep" checked={splitAfter === 'keep'} on:change={() => splitAfter = 'keep'} />
+          <input type="radio" bind:group={splitAfter} value="keep" />
           <div>
             <div class="split-opt-title">Keep original deck</div>
             <div class="split-opt-sub">Source deck remains alongside new sub-decks</div>
           </div>
         </label>
         <label class="split-option-row">
-          <input type="radio" name="split-after" value="delete" checked={splitAfter === 'delete'} on:change={() => splitAfter = 'delete'} />
+          <input type="radio" bind:group={splitAfter} value="delete" />
           <div>
             <div class="split-opt-title">Delete original deck</div>
             <div class="split-opt-sub">Remove source deck after splitting</div>
@@ -247,8 +230,8 @@
 
     <div class="modal-footer">
       <div class="draw-controls-row" style="gap:10px">
-        <button class="btn btn-secondary" on:click={() => splitDeckId.set(null)}>Cancel</button>
-        <button class="btn btn-primary" id="split-confirm-btn" on:click={confirmSplit} disabled={!validated}>
+        <button class="btn btn-secondary" onclick={() => appState.splitDeckId = null}>Cancel</button>
+        <button class="btn btn-primary" id="split-confirm-btn" onclick={confirmSplit} disabled={!validated}>
           Create Sub-decks
         </button>
       </div>

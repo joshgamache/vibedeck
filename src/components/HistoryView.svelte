@@ -1,22 +1,22 @@
 <script lang="ts">
-  import { currentDeckId, history, decks, lightboxSrc, type HistoryEntry, type Card } from '../js/state';
+  import { appState, type HistoryEntry, type Card } from '../js/state.svelte';
   import { iGet, iDelIdx } from '../js/db';
-  import { showToast } from '../js/toastStore';
+  import { showToast } from '../js/toastStore.svelte';
 
   interface HistoryCard extends HistoryEntry {
     front: string;
     pageNum: number;
   }
 
-  let historyCards: HistoryCard[] = [];
+  let historyCards = $state<HistoryCard[]>([]);
 
-  $: activeDeck = $decks.find(d => d.id === $currentDeckId);
-  $: currentHistory = ($currentDeckId ? $history[$currentDeckId] : []) || [];
+  const activeDeck = $derived(appState.decks.find(d => d.id === appState.currentDeckId));
+  const currentHistory = $derived((appState.currentDeckId ? appState.history[appState.currentDeckId] : []) || []);
 
   // Reactively fetch card details for history list
-  $: {
+  $effect(() => {
     loadHistoryDetails(currentHistory);
-  }
+  });
 
   async function loadHistoryDetails(hist: HistoryEntry[]): Promise<void> {
     if (!hist || !hist.length) {
@@ -38,20 +38,16 @@
   }
 
   async function clearHistory(): Promise<void> {
-    const deckId = $currentDeckId;
+    const deckId = appState.currentDeckId;
     if (!deckId || !confirm('Clear draw history for this deck?')) return;
     await iDelIdx('history', 'deckId', deckId);
 
-    history.update(h => {
-      const next = { ...h };
-      next[deckId] = [];
-      return next;
-    });
+    appState.history[deckId] = [];
     showToast('History cleared');
   }
 
   function zoomCard(src: string): void {
-    lightboxSrc.set(src);
+    appState.lightboxSrc = src;
   }
 </script>
 
@@ -60,10 +56,10 @@
     <span class="section-title" id="history-title">
       {activeDeck ? `${activeDeck.name} History` : 'Draw History'}
     </span>
-    <button class="btn btn-ghost" on:click={clearHistory}>Clear</button>
+    <button class="btn btn-ghost" onclick={clearHistory}>Clear</button>
   </div>
   <div id="history-content">
-    {#if !$currentDeckId}
+    {#if !appState.currentDeckId}
       <div class="empty-state">
         <div class="empty-state-icon">🃏</div>
         <div class="empty-state-title">No deck selected</div>
@@ -77,9 +73,9 @@
     {:else}
       <div class="history-grid">
         {#each historyCards as card (card.cardId + card.drawnAt)}
-          <!-- svelte-ignore a11y-click-events-have-key-events -->
-          <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
-          <div class="history-card-thumb" on:click={() => zoomCard(card.front)}>
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+          <div class="history-card-thumb" onclick={() => zoomCard(card.front)}>
             <img src={card.front} alt="" loading="lazy" />
             <span class="thumb-num">p{card.pageNum}</span>
           </div>
@@ -88,3 +84,4 @@
     {/if}
   </div>
 </div>
+
