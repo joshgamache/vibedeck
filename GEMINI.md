@@ -19,8 +19,8 @@ This file is configured for compatibility with Gemini CLI. It aligns with `.anti
 - **Build Tool**: Vite (configured with relative asset paths for static deployments).
 - **Package Manager**: `pnpm` (use `pnpm` for installing packages and running scripts).
 - **Styling**: Vanilla CSS (no CSS frameworks like Tailwind CSS, unless explicitly requested).
-- **Database**: IndexedDB (`db.js`) for storing raw decks, cards, history, and current draw states.
-- **Local Network Sharing**: WebRTC PeerJS (`sync.js` / `peerjs`) for peer-to-peer data channel connections, and QR Code (`qrcode`) canvas rendering for easy joining.
+- **Database**: IndexedDB (`db.ts`) for storing raw decks, cards, history, and current draw states.
+- **Local Network Sharing**: WebRTC PeerJS (`sync.ts` / `peerjs`) for peer-to-peer data channel connections, and QR Code (`qrcode`) canvas rendering for easy joining.
 - **Import Engine**: PDF.js (configured via CDN/local assets) to extract text and render PDF pages to JPEG data-URLs.
 - **Linter & Formatter**: `oxlint` and `oxfmt`.
 
@@ -36,7 +36,7 @@ This file is configured for compatibility with Gemini CLI. It aligns with `.anti
 ├── vite.config.js        # Vite build configuration (base: "./")
 ├── svelte.config.js      # Svelte configuration file
 ├── src/
-│   ├── main.js           # Svelte mount entrypoint
+│   ├── main.ts           # Svelte mount entrypoint
 │   ├── App.svelte        # Application entrypoint & view coordinator
 │   ├── components/       # Svelte UI Components
 │   │   ├── DrawView.svelte      # Core card drawing interface & GM sharing panel
@@ -52,12 +52,12 @@ This file is configured for compatibility with Gemini CLI. It aligns with `.anti
 │   │   ├── base.css             # Base reset & typography styles
 │   │   ├── components/          # Component-specific stylesheets
 │   │   └── views/               # View-specific stylesheets
-│   └── js/               # Shared JavaScript utilities
-│       ├── db.js                # IndexedDB wrapper and operations
-│       ├── state.js             # Global Svelte 5 app state
-│       ├── sync.js              # WebRTC sync orchestration using PeerJS
-│       ├── toastStore.js        # Svelte toast management store
-│       └── utils.js             # General helper functions
+│   └── js/               # Shared TypeScript utilities
+│       ├── db.ts                # IndexedDB wrapper and operations
+│       ├── state.ts             # Global Svelte 5 app state
+│       ├── sync.ts              # WebRTC sync orchestration using PeerJS
+│       ├── toastStore.ts        # Svelte toast management store
+│       └── utils.ts             # General helper functions
 ```
 
 ---
@@ -76,7 +76,7 @@ We use a premium, immersive **dark "ancient technology" / sci-fantasy theme**:
 
 ---
 
-## 5. Data Model (IndexedDB - `db.js`)
+## 5. Data Model (IndexedDB - `db.ts`)
 
 The app uses `the-deck-v1` IndexedDB database with four main object stores:
 
@@ -99,7 +99,7 @@ The app uses `the-deck-v1` IndexedDB database with four main object stores:
 
 ---
 
-## 6. WebRTC Card Sharing Protocol (`sync.js`)
+## 6. WebRTC Card Sharing Protocol (`sync.ts`)
 
 Direct local-network card sharing is built on **PeerJS**:
 
@@ -121,6 +121,9 @@ Always run scripts using `pnpm`:
 - **Linting auto-fix**: `pnpm run lint:fix` (runs oxlint with auto-fix)
 - **Formatting check**: `pnpm run fmt:check` (runs oxfmt check)
 - **Formatting auto-apply**: `pnpm run fmt` (runs oxfmt formatter)
+
+> [!NOTE]
+> `oxlint` may produce `eslint(no-unassigned-vars)` warnings for Svelte DOM element bindings (e.g., variables used in `bind:this` such as `qrCanvas` or `fileInputEl`). These warnings are false positives and can be safely ignored. Do not delete the variable declarations, as it will break DOM references.
 
 ---
 
