@@ -274,3 +274,20 @@ For advanced interface controls (such as nested select menus, accessible dialogs
    - Bind options to Svelte 5 states/runes natively.
 4. **Theme Overriding with Vanilla CSS**:
    - Style Bits UI components utilizing their exposed data attributes (e.g. `data-selected`, `data-highlighted`) or standard class configurations mapped to the CSS variables in `variables.css`.
+
+---
+
+## Slice F: Tablet View ("GM Screen") & Standalone PWA Support
+
+Enable a tablet-optimized landscape dashboard supporting two layouts, wake-lock dimming prevention, and offline-capable standalone PWA installability.
+
+1. **Dual-Layout Profiles**:
+   - **GM Dashboard Layout**: A side-by-side console. Left panel handles deck selection, progress, and drawing controls. Right panel manages auto-share configurations, seat distribution, and virtual seat inspection.
+   - **Table Display Layout**: A player-facing tabletop display. Centers the GM's broadcasted card, scaling it dynamically to fit the viewport. If no card is active, displays a runic pulsing seal placeholder. Includes a horizontal lower-sixth tray showing all player hands (peered and virtual).
+2. **WebRTC Hand Sync Protocol**:
+   - **Hand Update (`HAND_UPDATE`)**: Peered clients transmit their active hand list of card thumbnails to the host upon any hand mutation.
+   - **Hands Sync (`HANDS_SYNC`)**: The host compiles peered client hands and virtual seat hands, broadcasting the aggregated state to all screens.
+3. **Screen Wake Lock**:
+   - Integrate the `navigator.wakeLock` API when in Table Display mode to prevent screens from dimming or falling asleep during long tabletop sessions.
+4. **Standalone PWA Shell**:
+   - Serve a caching service worker (`sw.js`) utilizing a stale-while-revalidate strategy, alongside an SVG app icon (`icon.svg`) and a Web App manifest (`manifest.json`) for standalone landscape execution.
