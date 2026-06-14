@@ -7,11 +7,12 @@
   import HistoryView from './components/HistoryView.svelte';
   import LibraryView from './components/LibraryView.svelte';
   import TableView from './components/TableView.svelte';
+  import GMScreenView from './components/GMScreenView.svelte';
   import ImportModal from './components/ImportModal.svelte';
   import SplitModal from './components/SplitModal.svelte';
   import Lightbox from './components/Lightbox.svelte';
   import ToastContainer from './components/ToastContainer.svelte';
-  import { syncState, joinTable } from './js/sync.svelte';
+  import { syncState, joinTable, sendHandUpdate } from './js/sync.svelte';
 
   onMount(async () => {
     // Configure PDF.js Global Worker
@@ -48,6 +49,15 @@
       joinTable(tableCode);
     }
   });
+
+  // Automatically sync client hands back to the host when they change
+  $effect(() => {
+    // Create dependencies on hand count and annotations to capture additions, removals, and note edits
+    const _cardsDep = syncState.receivedCards.map(c => c.id + (c.annotations?.join(",") || ""));
+    if (syncState.role === 'client') {
+      sendHandUpdate();
+    }
+  });
 </script>
 
 <div id="app">
@@ -60,6 +70,7 @@
     <button class="nav-tab" class:active={appState.activeTab === 'draw'} onclick={() => appState.activeTab = 'draw'}>Draw</button>
     <button class="nav-tab" class:active={appState.activeTab === 'history'} onclick={() => appState.activeTab = 'history'}>History</button>
     <button class="nav-tab" class:active={appState.activeTab === 'library'} onclick={() => appState.activeTab = 'library'}>Library</button>
+    <button class="nav-tab" class:active={appState.activeTab === 'gmscreen'} onclick={() => appState.activeTab = 'gmscreen'}>GM Screen</button>
     <button class="nav-tab" style="position: relative;" class:active={appState.activeTab === 'table'} onclick={() => appState.activeTab = 'table'}>
       Table
       {#if syncState.role === 'host'}
@@ -79,6 +90,8 @@
       <LibraryView />
     {:else if appState.activeTab === 'table'}
       <TableView />
+    {:else if appState.activeTab === 'gmscreen'}
+      <GMScreenView />
     {/if}
   </main>
 </div>

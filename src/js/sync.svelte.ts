@@ -36,6 +36,7 @@ class SyncManager {
   autoShareTarget = $state<string>(""); // peerId of target player
   discardPile = $state<Card[]>([]); // Array of card objects (Shared discard pile)
   virtualPlayerHands = $state<Record<string, Card[]>>({}); // Dictionary of peerId -> card[]
+  playerHands = $state<Record<string, Card[]>>({}); // Dictionary of peerId -> card[] for all players (peered + virtual)
 }
 
 export const syncState = new SyncManager();
@@ -96,6 +97,10 @@ export function startHosting(): void {
           syncState.clientCount = syncState.connectedPlayers.length;
           showToast(`${data.name} joined the table`, "success");
 
+          // Initialize their hand as empty and sync player hands
+          syncState.playerHands[conn.peer] = [];
+          broadcastPlayerHands();
+
           // Sync updated players list to all players
           const currentPlayers = syncState.connectedPlayers;
           activeConnections.forEach((c) => {
@@ -143,6 +148,7 @@ export function startHosting(): void {
             const hand = syncState.virtualPlayerHands[data.targetPeerId] || [];
             if (!hand.some((c) => c.id === data.card.id)) {
               syncState.virtualPlayerHands[data.targetPeerId] = [...hand, data.card];
+              broadcastPlayerHands();
             }
 
             conn.send({
@@ -257,6 +263,9 @@ export function startHosting(): void {
             });
             showToast(text, "success");
           }
+        } else if (data.type === "HAND_UPDATE") {
+          syncState.playerHands[conn.peer] = data.cards || [];
+          broadcastPlayerHands();
         }
       }
     });
@@ -269,6 +278,9 @@ export function startHosting(): void {
       syncState.connectedPlayers = syncState.connectedPlayers.filter((p) => p.peerId !== conn.peer);
       syncState.clientCount = syncState.connectedPlayers.length;
       showToast(`${name} left the table`);
+
+      delete syncState.playerHands[conn.peer];
+      broadcastPlayerHands();
 
       // Sync updated players list to all players
       const currentPlayers = syncState.connectedPlayers;
@@ -287,6 +299,9 @@ export function startHosting(): void {
       activeConnections = activeConnections.filter((c) => c !== conn);
       syncState.connectedPlayers = syncState.connectedPlayers.filter((p) => p.peerId !== conn.peer);
       syncState.clientCount = syncState.connectedPlayers.length;
+
+      delete syncState.playerHands[conn.peer];
+      broadcastPlayerHands();
 
       // Sync updated players list to all players
       const currentPlayers = syncState.connectedPlayers;
@@ -438,6 +453,8 @@ export function joinTable(code: string, name?: string): void {
           const filteredPlayers = data.players.filter((p: Player) => p.peerId !== myId);
           syncState.connectedPlayers = filteredPlayers;
           syncState.clientCount = data.players.length;
+        } else if (data.type === "HANDS_SYNC") {
+          syncState.playerHands = data.hands;
         }
       }
     });
@@ -497,6 +514,7 @@ export function disconnect(): void {
   syncState.receivedCards = [];
   syncState.discardPile = [];
   syncState.virtualPlayerHands = {};
+  syncState.playerHands = {};
 }
 
 export function pushCard(card: Card | null): void {
@@ -541,6 +559,7 @@ export function sendCardTo(peerId: string, card: Card | null): void {
     const hand = syncState.virtualPlayerHands[peerId] || [];
     if (!hand.some((c) => c.id === card.id)) {
       syncState.virtualPlayerHands[peerId] = [...hand, card];
+      broadcastPlayerHands();
     }
 
     const text = `👤 GM sent a card privately to virtual player ${player.name}`;
@@ -746,6 +765,7 @@ export function addVirtualPlayer(name: string): void {
 
   // Initialize empty hand for virtual player
   syncState.virtualPlayerHands[peerId] = [];
+  broadcastPlayerHands();
 
   // Sync updated players list to all peered players
   const currentPlayers = syncState.connectedPlayers;
@@ -772,6 +792,7 @@ export function removeVirtualPlayer(peerId: string): void {
   syncState.clientCount = syncState.connectedPlayers.length;
 
   delete syncState.virtualPlayerHands[peerId];
+  broadcastPlayerHands();
 
   // Sync updated players list to all peered players
   const currentPlayers = syncState.connectedPlayers;
@@ -793,6 +814,7 @@ export function discardVirtualCard(peerId: string, card: Card): void {
 
   const hand = syncState.virtualPlayerHands[peerId] || [];
   syncState.virtualPlayerHands[peerId] = hand.filter((c) => c.id !== card.id);
+  broadcastPlayerHands();
 
   // Put card in shared discard pile
   syncState.discardPile.push(card);
@@ -822,4 +844,38 @@ export function discardVirtualCard(peerId: string, card: Card): void {
   });
 
   showToast(`Discarded ${playerNameText}'s card`, "success");
+}
+
+export function broadcastPlayerHands(): void {
+  const role = syncState.role;
+  if (role !== "host") return;
+
+  const allHands: Record<string, Card[]> = { ...syncState.playerHands };
+
+  // Merge virtual player hands
+  Object.keys(syncState.virtualPlayerHands).forEach((peerId) => {
+    allHands[peerId] = syncState.virtualPlayerHands[peerId];
+  });
+
+  activeConnections.forEach((c) => {
+    if (c.open) {
+      c.send({
+        type: "HANDS_SYNC",
+        hands: allHands,
+      });
+    }
+  });
+}
+
+export function sendHandUpdate(): void {
+  const role = syncState.role;
+  if (role !== "client") return;
+
+  const conn = activeConnections[0];
+  if (conn && conn.open) {
+    conn.send({
+      type: "HAND_UPDATE",
+      cards: $state.snapshot(syncState.receivedCards),
+    });
+  }
 }
